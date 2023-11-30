@@ -58,6 +58,8 @@ type Controller struct {
 	lastExpansionError string
 
 	fileSyncHTTPClientTimeout int
+
+	frontendQueues int
 }
 
 const (
@@ -67,7 +69,7 @@ const (
 )
 
 func NewController(name string, factory types.BackendFactory, frontend types.Frontend, isUpgrade, disableRevCounter, salvageRequested, unmapMarkSnapChainRemoved bool,
-	iscsiTargetRequestTimeout, engineReplicaTimeout time.Duration, dataServerProtocol types.DataServerProtocol, fileSyncHTTPClientTimeout int) *Controller {
+	iscsiTargetRequestTimeout, engineReplicaTimeout time.Duration, dataServerProtocol types.DataServerProtocol, fileSyncHTTPClientTimeout int, frontendQueues int) *Controller {
 	c := &Controller{
 		factory:       factory,
 		VolumeName:    name,
@@ -85,6 +87,7 @@ func NewController(name string, factory types.BackendFactory, frontend types.Fro
 		DataServerProtocol:        dataServerProtocol,
 
 		fileSyncHTTPClientTimeout: fileSyncHTTPClientTimeout,
+		frontendQueues:            frontendQueues,
 	}
 	c.reset()
 	c.metricsStart()
@@ -484,7 +487,7 @@ func (c *Controller) StartFrontend(frontend string) error {
 		}
 	}
 
-	f, err := NewFrontend(frontend, c.iscsiTargetRequestTimeout)
+	f, err := NewFrontend(frontend, c.iscsiTargetRequestTimeout, c.frontendQueues)
 	if err != nil {
 		return errors.Wrapf(err, "failed to find frontend: %s", frontend)
 	}
@@ -735,20 +738,6 @@ func (c *Controller) Start(volumeSize, volumeCurrentSize int64, addresses ...str
 			}
 			logrus.WithError(err).Warnf("Failed to create backend with address %v", address)
 			continue
-		}
-
-		// If the instance manager crashes during the execution of [this code block](https://github.com/longhorn/longhorn-engine/blob/v1.5.1/pkg/sync/sync.go#L435-L446)
-		// the volume.meta file will be left with `Rebuilding` set to true. If Longhorn subsequently updates the replica
-		// as healthy, then the old replica will be removed. In scenarios involving multiple replicas, Longhorn will
-		// remove the replica with illegal values, thereby allowing rebuilding from other healthy replicas. However, in
-		// the case of single replicas, we cannot employ the same strategy.
-		// As a result, we will make a best-effort attempt to reset the `Rebuilding` flag for single replica cases.
-		// Ref: https://github.com/longhorn/longhorn/issues/6626
-		if len(addresses) == 1 {
-			err = newBackend.ResetRebuild()
-			if err != nil {
-				logrus.WithError(err).Warnf("Failed to reset invalid rebuild for backend with address %v", address)
-			}
 		}
 
 		newSize, err := newBackend.Size()
