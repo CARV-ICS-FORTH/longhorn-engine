@@ -75,7 +75,7 @@ func (u *Ublk) StartUblk() error {
 		return err
 	}
 
-	u.UblkId = int(jsonOutput["dev_id"].(float64))
+	u.UblkID = int(jsonOutput["dev_id"].(float64))
 	u.DaemonPId = int(jsonOutput["daemon_pid"].(float64))
 	u.Queues = int(jsonOutput["nr_hw_queues"].(float64))
 	u.QueueDepth = int(jsonOutput["queue_depth"].(float64))
@@ -100,7 +100,7 @@ func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 }
 func (u *Ublk) ShutdownUblk() {
 	comm := "ublk"
-	args := []string{"del", strconv.Itoa(u.UblkId)}
+	args := []string{"del", strconv.Itoa(u.UblkID)}
 
 	cmd := exec.Command(comm, args...)
 	logrus.Infof("Running command: %v", cmd.Args)
@@ -167,7 +167,12 @@ func (u *Ublk) startSocketServer(rwu types.ReaderWriterUnmapperAt) error {
 	}
 
 	u.socketPath = socketPath
-	go u.startSocketServerListen(rwu)
+	go func() {
+		err := u.startSocketServerListen(rwu)
+		if err != nil {
+			logrus.Errorf("Failed to start socket server: %v", err)
+		}
+	}()
 	return nil
 }
 
@@ -176,7 +181,12 @@ func (u *Ublk) startSocketServerListen(rwu types.ReaderWriterUnmapperAt) error {
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	defer func(ln net.Listener) {
+		err := ln.Close()
+		if err != nil {
+			logrus.WithError(err).Error("Failed to close socket listener")
+		}
+	}(ln)
 
 	for {
 		conn, err := ln.Accept()
@@ -189,7 +199,12 @@ func (u *Ublk) startSocketServerListen(rwu types.ReaderWriterUnmapperAt) error {
 }
 
 func (u *Ublk) handleServerConnection(c net.Conn, rwu types.ReaderWriterUnmapperAt) {
-	defer c.Close()
+	defer func(c net.Conn) {
+		err := c.Close()
+		if err != nil {
+			logrus.WithError(err).Error("Failed to close socket server connection")
+		}
+	}(c)
 
 	server := dataconn.NewServer(c, NewDataProcessorWrapper(rwu))
 	logrus.Info("New data socket connection established")
