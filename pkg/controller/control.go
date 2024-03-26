@@ -33,6 +33,7 @@ type Controller struct {
 	isUpgrade                 bool
 	iscsiTargetRequestTimeout time.Duration
 	engineReplicaTimeout      time.Duration
+	replicaStreams            int
 	DataServerProtocol        types.DataServerProtocol
 
 	isExpanding             bool
@@ -69,7 +70,7 @@ const (
 )
 
 func NewController(name string, factory types.BackendFactory, frontend types.Frontend, isUpgrade, disableRevCounter, salvageRequested, unmapMarkSnapChainRemoved bool,
-	iscsiTargetRequestTimeout, engineReplicaTimeout time.Duration, dataServerProtocol types.DataServerProtocol, fileSyncHTTPClientTimeout int, frontendQueues int) *Controller {
+	iscsiTargetRequestTimeout, engineReplicaTimeout time.Duration, replicaStreams int, dataServerProtocol types.DataServerProtocol, fileSyncHTTPClientTimeout int, frontendQueues int) *Controller {
 	c := &Controller{
 		factory:       factory,
 		VolumeName:    name,
@@ -84,6 +85,7 @@ func NewController(name string, factory types.BackendFactory, frontend types.Fro
 
 		iscsiTargetRequestTimeout: iscsiTargetRequestTimeout,
 		engineReplicaTimeout:      engineReplicaTimeout,
+		replicaStreams:            replicaStreams,
 		DataServerProtocol:        dataServerProtocol,
 
 		fileSyncHTTPClientTimeout: fileSyncHTTPClientTimeout,
@@ -167,7 +169,7 @@ func (c *Controller) addReplica(address string, snapshotRequired bool, mode type
 		return err
 	}
 
-	newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.engineReplicaTimeout)
+	newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.engineReplicaTimeout, c.replicaStreams)
 	if err != nil {
 		return err
 	}
@@ -731,13 +733,27 @@ func (c *Controller) Start(volumeSize, volumeCurrentSize int64, addresses ...str
 	errorCodes := map[string]codes.Code{}
 	first := true
 	for _, address := range addresses {
-		newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.engineReplicaTimeout)
+		newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.engineReplicaTimeout, c.replicaStreams)
 		if err != nil {
 			if strings.Contains(err.Error(), "rpc error: code = Unavailable") {
 				errorCodes[address] = codes.Unavailable
 			}
 			logrus.WithError(err).Warnf("Failed to create backend with address %v", address)
 			continue
+		}
+
+		// If the instance manager crashes during the execution of [this code block](https://github.com/longhorn/longhorn-engine/blob/v1.5.1/pkg/sync/sync.go#L435-L446)
+		// the volume.meta file will be left with `Rebuilding` set to true. If Longhorn subsequently updates the replica
+		// as healthy, then the old replica will be removed. In scenarios involving multiple replicas, Longhorn will
+		// remove the replica with illegal values, thereby allowing rebuilding from other healthy replicas. However, in
+		// the case of single replicas, we cannot employ the same strategy.
+		// As a result, we will make a best-effort attempt to reset the `Rebuilding` flag for single replica cases.
+		// Ref: https://github.com/longhorn/longhorn/issues/6626
+		if len(addresses) == 1 {
+			err = newBackend.ResetRebuild()
+			if err != nil {
+				logrus.WithError(err).Warnf("Failed to reset invalid rebuild for backend with address %v", address)
+			}
 		}
 
 		newSize, err := newBackend.Size()

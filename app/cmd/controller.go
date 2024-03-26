@@ -67,6 +67,12 @@ func ControllerCmd() cli.Command {
 				Value:  int64(controller.DefaultEngineReplicaTimeout.Seconds()),
 				Usage:  "In seconds. Timeout between engine and replica(s)",
 			},
+			cli.IntFlag{
+				Name:     "replica-streams",
+				Required: false,
+				Value:    1,
+				Usage:    "Number of concurrent streams to each replica",
+			},
 			cli.StringFlag{
 				Name:  "data-server-protocol",
 				Value: "tcp",
@@ -145,6 +151,11 @@ func startController(c *cli.Context) error {
 	engineReplicaTimeout = controller.DetermineEngineReplicaTimeout(engineReplicaTimeout)
 	iscsiTargetRequestTimeout := controller.DetermineIscsiTargetRequestTimeout(engineReplicaTimeout)
 
+	replicaStreams := c.Int("replica-streams")
+	if replicaStreams < 1 {
+		return errors.New("at least one stream per replica is required")
+	}
+
 	factories := map[string]types.BackendFactory{}
 	for _, backend := range backends {
 		switch backend {
@@ -166,10 +177,10 @@ func startController(c *cli.Context) error {
 		frontend = f
 	}
 
-	logrus.Infof("Creating volume %v controller with iSCSI target request timeout %v and engine to replica(s) timeout %v",
-		volumeName, iscsiTargetRequestTimeout, engineReplicaTimeout)
+	logrus.Infof("Creating volume %v controller with iSCSI target request timeout %v, engine to replica(s) timeout %v, streams per replica %v",
+		volumeName, iscsiTargetRequestTimeout, engineReplicaTimeout, replicaStreams)
 	control := controller.NewController(volumeName, dynamic.New(factories), frontend, isUpgrade, disableRevCounter, salvageRequested,
-		unmapMarkSnapChainRemoved, iscsiTargetRequestTimeout, engineReplicaTimeout, types.DataServerProtocol(dataServerProtocol),
+		unmapMarkSnapChainRemoved, iscsiTargetRequestTimeout, engineReplicaTimeout, replicaStreams, types.DataServerProtocol(dataServerProtocol),
 		fileSyncHTTPClientTimeout, frontendQueues)
 
 	// need to wait for Shutdown() completion
