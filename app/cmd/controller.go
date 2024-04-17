@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strings"
 	"syscall"
@@ -25,6 +28,11 @@ func ControllerCmd() cli.Command {
 	return cli.Command{
 		Name: "controller",
 		Flags: []cli.Flag{
+			cli.BoolFlag{
+				Name:     "profiling",
+				Required: false,
+				Usage:    "Enable pprof server",
+			},
 			cli.StringFlag{
 				Name:  "listen",
 				Value: "localhost:9501",
@@ -127,6 +135,18 @@ func startController(c *cli.Context) error {
 	fileSyncHTTPClientTimeout := c.Int("file-sync-http-client-timeout")
 	engineInstanceName := c.GlobalString("engine-instance-name")
 	frontendQueues := c.Int("frontend-queues")
+
+	proffiling := c.Bool("profiling")
+	if proffiling {
+		fmt.Println("Starting pprof server")
+		go func() {
+			err := http.ListenAndServe("localhost:6060", nil)
+			if err != nil {
+				fmt.Println("Error starting pprof server:", err)
+			}
+		}()
+
+	}
 
 	size := c.String("size")
 	if size == "" {

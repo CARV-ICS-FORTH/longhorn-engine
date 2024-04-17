@@ -1216,32 +1216,34 @@ func (r *Replica) Expand(size int64) (err error) {
 }
 
 func (r *Replica) WriteAt(buf []byte, offset int64) (int, error) {
-	if r.readOnly {
-		return 0, fmt.Errorf("cannot write on read-only replica")
-	}
-
-	r.RLock()
-	r.info.Dirty = true
-	c, err := r.volume.WriteAt(buf, offset)
-	r.RUnlock()
-	if err != nil {
-		return c, err
-	}
-
-	if !r.revisionCounterDisabled {
-		if err := r.increaseRevisionCounter(); err != nil {
-			return c, err
-		}
-	}
-
-	return c, nil
+	//if r.readOnly {
+	//	return 0, fmt.Errorf("cannot write on read-only replica")
+	//}
+	//
+	//r.RLock()
+	//r.info.Dirty = true
+	//c, err := r.volume.WriteAt(buf, offset)
+	//r.RUnlock()
+	//if err != nil {
+	//	return c, err
+	//}
+	//
+	//if !r.revisionCounterDisabled {
+	//	if err := r.increaseRevisionCounter(); err != nil {
+	//		return c, err
+	//	}
+	//}
+	//
+	//return c, nil
+	return len(buf), nil
 }
 
 func (r *Replica) ReadAt(buf []byte, offset int64) (int, error) {
-	r.RLock()
-	c, err := r.volume.ReadAt(buf, offset)
-	r.RUnlock()
-	return c, err
+	//r.RLock()
+	//c, err := r.volume.ReadAt(buf, offset)
+	//r.RUnlock()
+	//return c, err
+	return len(buf), nil
 }
 
 func (r *Replica) UnmapAt(length uint32, offset int64) (n int, err error) {

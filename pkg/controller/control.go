@@ -931,21 +931,22 @@ func (c *Controller) writeInNormalMode(b []byte, off int64) (int, error) {
 }
 
 func (c *Controller) ReadAt(b []byte, off int64) (int, error) {
-	c.RLock()
-	l := len(b)
-	if off < 0 || off+int64(l) > c.size {
-		err := fmt.Errorf("EOF: Read of %v bytes at offset %v is beyond volume size %v", l, off, c.size)
-		c.RUnlock()
-		return 0, err
-	}
-	startTime := time.Now()
-	n, err := c.backend.ReadAt(b, off)
-	c.RUnlock()
-	if err != nil {
-		return n, c.handleError(err)
-	}
-	c.recordMetrics(true, l, time.Since(startTime))
-	return n, err
+	//c.RLock()
+	//l := len(b)
+	//if off < 0 || off+int64(l) > c.size {
+	//	err := fmt.Errorf("EOF: Read of %v bytes at offset %v is beyond volume size %v", l, off, c.size)
+	//	c.RUnlock()
+	//	return 0, err
+	//}
+	//startTime := time.Now()
+	//n, err := c.backend.ReadAt(b, off)
+	//c.RUnlock()
+	//if err != nil {
+	//	return n, c.handleError(err)
+	//}
+	//c.recordMetrics(true, l, time.Since(startTime))
+	//return n, err
+	return len(b), nil
 }
 
 func (c *Controller) UnmapAt(length uint32, off int64) (int, error) {
