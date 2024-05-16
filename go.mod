@@ -5,6 +5,7 @@ go 1.21
 require (
 	github.com/docker/go-units v0.3.3
 	github.com/gofrs/flock v0.8.1
+	github.com/golang-design/lockfree v0.0.1
 	github.com/golang/protobuf v1.5.3
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/handlers v1.5.1
@@ -33,6 +34,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/c9s/goprocinfo v0.0.0-20190309065803-0b2ad9ac246b // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/changkun/lockfree v0.0.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d // indirect
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/felixge/httpsnoop v1.0.1 // indirect

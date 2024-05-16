@@ -74,6 +74,8 @@ github.com/c9s/goprocinfo/linux
 # github.com/cespare/xxhash/v2 v2.2.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
+# github.com/changkun/lockfree v0.0.1
+## explicit
 # github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d
 ## explicit; go 1.12
 github.com/cpuguy83/go-md2man/v2/md2man
@@ -97,6 +99,9 @@ github.com/go-logr/logr
 # github.com/gofrs/flock v0.8.1
 ## explicit
 github.com/gofrs/flock
+# github.com/golang-design/lockfree v0.0.1
+## explicit
+github.com/golang-design/lockfree
 # github.com/golang/protobuf v1.5.3
 ## explicit; go 1.9
 github.com/golang/protobuf/jsonpb

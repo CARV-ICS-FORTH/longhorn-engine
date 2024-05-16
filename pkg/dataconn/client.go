@@ -2,18 +2,12 @@ package dataconn
 
 import (
 	"errors"
+	"github.com/golang-design/lockfree"
 	"io"
 	"net"
 	"time"
 
 	"github.com/sirupsen/logrus"
-
-	journal "github.com/longhorn/sparse-tools/stats"
-)
-
-var (
-	//ErrRWTimeout r/w operation timeout
-	ErrRWTimeout = errors.New("r/w timeout")
 )
 
 // Client replica client
@@ -23,7 +17,8 @@ type Client struct {
 	send      chan *Message
 	responses chan *Message
 	seq       uint32
-	messages  map[uint32]*Message
+	messages  [1024]*Message
+	msgQueue  lockfree.Queue
 	wire      *Wire
 	peerAddr  string
 	opTimeout time.Duration
@@ -31,6 +26,11 @@ type Client struct {
 
 // NewClient replica client
 func NewClient(conn net.Conn, engineToReplicaTimeout time.Duration) *Client {
+	newQueue := lockfree.NewQueue()
+	for i := 0; i < 1024; i++ {
+		newQueue.Enqueue(uint32(i))
+	}
+
 	c := &Client{
 		wire:      NewWire(conn),
 		peerAddr:  conn.RemoteAddr().String(),
@@ -38,10 +38,10 @@ func NewClient(conn net.Conn, engineToReplicaTimeout time.Duration) *Client {
 		requests:  make(chan *Message, 1024),
 		send:      make(chan *Message, 1024),
 		responses: make(chan *Message, 1024),
-		messages:  map[uint32]*Message{},
+		messages:  [1024]*Message{},
+		msgQueue:  *newQueue,
 		opTimeout: engineToReplicaTimeout,
 	}
-	go c.loop()
 	go c.write()
 	go c.read()
 	return c
@@ -93,7 +93,7 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 		msg.Data = buf
 	}
 
-	c.requests <- &msg
+	c.handleRequest(&msg)
 
 	<-msg.Complete
 	// Only copy the message if a read is requested
@@ -106,6 +106,7 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 	if msg.Type == TypeEOF {
 		return int(msg.Size), io.EOF
 	}
+	c.msgQueue.Enqueue(msg.Seq)
 	return int(msg.Size), nil
 }
 
@@ -115,124 +116,39 @@ func (c *Client) Close() {
 	c.end <- struct{}{}
 }
 
-func (c *Client) loop() {
-	defer close(c.send)
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	var clientError error
-	var ioInflight int
-	var ioDeadline time.Time
-
-	// handleClientError cleans up all in flight messages
-	// also stores the error so that future requests/responses get errored immediately.
-	handleClientError := func(err error) {
-		clientError = err
-		for _, msg := range c.messages {
-			c.replyError(msg, err)
-		}
-
-		ioInflight = 0
-		ioDeadline = time.Time{}
-	}
-
-	for {
-		select {
-		case <-c.end:
-			return
-		case <-ticker.C:
-			if ioDeadline.IsZero() || time.Now().Before(ioDeadline) {
-				continue
-			}
-
-			logrus.Errorf("R/W Timeout. No response received in %v", c.opTimeout)
-			handleClientError(ErrRWTimeout)
-			journal.PrintLimited(1000)
-		case req := <-c.requests:
-			if clientError != nil {
-				c.replyError(req, clientError)
-				continue
-			}
-
-			if req.Type == TypeRead || req.Type == TypeWrite || req.Type == TypeUnmap {
-				if ioInflight == 0 {
-					ioDeadline = time.Now().Add(c.opTimeout)
-				}
-				ioInflight++
-			}
-
-			c.handleRequest(req)
-		case resp := <-c.responses:
-			if resp.transportErr != nil {
-				handleClientError(resp.transportErr)
-				continue
-			}
-
-			req, pending := c.messages[resp.Seq]
-			if !pending {
-				logrus.Warnf("Received response message id %v seq %v type %v for non pending request", resp.ID, resp.Seq, resp.Type)
-				continue
-			}
-
-			if req.Type == TypeRead || req.Type == TypeWrite || req.Type == TypeUnmap {
-				ioInflight--
-				if ioInflight > 0 {
-					ioDeadline = time.Now().Add(c.opTimeout)
-				} else if ioInflight == 0 {
-					ioDeadline = time.Time{}
-				}
-			}
-
-			if clientError != nil {
-				c.replyError(req, clientError)
-				continue
-			}
-
-			c.handleResponse(resp)
-		}
-	}
-}
-
 func (c *Client) nextSeq() uint32 {
 	c.seq++
 	return c.seq
 }
 
 func (c *Client) replyError(req *Message, err error) {
-	journal.RemovePendingOp(req.ID, false)
-	delete(c.messages, req.Seq)
 	req.Type = TypeError
 	req.Data = []byte(err.Error())
 	req.Complete <- struct{}{}
 }
 
 func (c *Client) handleRequest(req *Message) {
-	switch req.Type {
-	case TypeRead:
-		req.ID = journal.InsertPendingOp(time.Now(), c.TargetID(), journal.OpRead, int(req.Size))
-	case TypeWrite:
-		req.ID = journal.InsertPendingOp(time.Now(), c.TargetID(), journal.OpWrite, int(req.Size))
-	case TypeUnmap:
-		req.ID = journal.InsertPendingOp(time.Now(), c.TargetID(), journal.OpUnmap, int(req.Size))
-	case TypePing:
-		req.ID = journal.InsertPendingOp(time.Now(), c.TargetID(), journal.OpPing, 0)
-	}
-
 	req.MagicVersion = MagicVersion
-	req.Seq = c.nextSeq()
+
+	seq := c.msgQueue.Dequeue()
+	for seq == nil {
+		seq = c.msgQueue.Dequeue()
+	}
+	req.Seq = seq.(uint32)
+
 	c.messages[req.Seq] = req
 	c.send <- req
 }
 
 func (c *Client) handleResponse(resp *Message) {
-	if req, ok := c.messages[resp.Seq]; ok {
-		journal.RemovePendingOp(req.ID, true)
-		delete(c.messages, resp.Seq)
-		req.Type = resp.Type
-		req.Size = resp.Size
-		req.Data = resp.Data
-		req.Complete <- struct{}{}
-	}
+
+	req := c.messages[resp.Seq]
+
+	req.Type = resp.Type
+	req.Size = resp.Size
+	req.Data = resp.Data
+	req.Complete <- struct{}{}
+
 }
 
 func (c *Client) write() {
@@ -255,6 +171,6 @@ func (c *Client) read() {
 			}
 			break
 		}
-		c.responses <- msg
+		c.handleResponse(msg)
 	}
 }

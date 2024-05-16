@@ -149,14 +149,11 @@ func NewDataProcessorWrapper(rwu types.ReaderWriterUnmapperAt) DataProcessorWrap
 }
 
 func (d DataProcessorWrapper) ReadAt(p []byte, off int64) (n int, err error) {
-
-	//return d.rwu.ReadAt(p, off)
-	return len(p), nil
+	return d.rwu.ReadAt(p, off)
 }
 
 func (d DataProcessorWrapper) WriteAt(p []byte, off int64) (n int, err error) {
-	//return d.rwu.WriteAt(p, off)
-	return len(p), nil
+	return d.rwu.WriteAt(p, off)
 }
 
 func (d DataProcessorWrapper) UnmapAt(length uint32, off int64) (n int, err error) {
