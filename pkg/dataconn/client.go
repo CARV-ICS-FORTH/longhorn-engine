@@ -128,13 +128,6 @@ func (c *Client) nextSeq() uint32 {
 }
 
 func (c *Client) replyError(req *Message, err error) {
-	if opErr := journal.RemovePendingOp(req.ID, false); opErr != nil {
-		logrus.WithError(opErr).WithFields(logrus.Fields{
-			"seq": req.Seq,
-			"id":  req.ID,
-		}).Warn("Error removing pending operation")
-	}
-	delete(c.messages, req.Seq)
 	req.Type = TypeError
 	req.Data = []byte(err.Error())
 	req.Complete <- struct{}{}
@@ -154,21 +147,6 @@ func (c *Client) handleRequest(req *Message) {
 }
 
 func (c *Client) handleResponse(resp *Message) {
-	if req, ok := c.messages[resp.Seq]; ok {
-		err := journal.RemovePendingOp(req.ID, true)
-		if err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"seq": resp.Seq,
-				"id":  req.ID,
-			}).Warn("Error removing pending operation")
-		}
-		delete(c.messages, resp.Seq)
-		req.Type = resp.Type
-		req.Size = resp.Size
-		req.Data = resp.Data
-		req.Complete <- struct{}{}
-	}
-
 	req := c.messages[resp.Seq]
 
 	req.Type = resp.Type

@@ -23,7 +23,7 @@ import (
 
 const (
 	PingInterval        = 2 * time.Second
-	NumberOfConnections = 2
+	NumberOfConnections = 6
 )
 
 func New() types.BackendFactory {
