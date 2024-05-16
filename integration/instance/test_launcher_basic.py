@@ -5,7 +5,7 @@ import pytest
 from common.core import (
     create_replica_process, create_engine_process,
     delete_process,
-    wait_for_process_running, wait_for_process_error,
+    wait_for_process_running,
     wait_for_process_deletion,
     check_dev_existence, wait_for_dev_deletion,
     upgrade_engine,
@@ -29,7 +29,7 @@ from common.cli import (  # NOQA
 
 from rpc.controller.controller_client import ControllerClient
 from rpc.replica.replica_client import ReplicaClient
-from rpc.instance_manager.process_manager_client import ProcessManagerClient
+from rpc.process_manager.process_manager_client import ProcessManagerClient
 
 
 def test_start_stop_replicas(pm_client):  # NOQA
@@ -80,32 +80,15 @@ def test_process_creation_failure(pm_client):  # NOQA
     for i in range(count):
         tmp_dir = tempfile.mkdtemp()
         name = REPLICA_NAME_BASE + str(i)
-
         args = ["replica", tmp_dir, "--size", str(SIZE)]
         pm_client.process_create(
-            name=name, binary="/opt/non-existing-binary", args=args,
-            port_count=15, port_args=["--listen,localhost:"])
-        wait_for_process_error(pm_client, name)
-
-        r = pm_client.process_get(name=name)
-        assert r.spec.name == name
-        assert r.status.state == PROC_STATE_ERROR
-        assert "no such file or directory" in r.status.error_msg
-
-    for i in range(count):
-        rs = pm_client.process_list()
-        assert len(rs) == (count-i)
-
-        name = REPLICA_NAME_BASE + str(i)
-        pm_client.process_delete(name=name)
-        wait_for_process_deletion(pm_client, name)
-
-        rs = pm_client.process_list()
-        assert len(rs) == (count-1-i)
+            name=name, binary="/engine-binaries/opt/non-existing-binary",
+            args=args, port_count=15, port_args=["--listen,localhost:"])
 
     rs = pm_client.process_list()
-    assert len(rs) == 0
-
+    assert len(rs) == 5
+    for name, r in rs.items():
+        assert r.status.state == PROC_STATE_ERROR
 
 def test_one_volume(pm_client, em_client):  # NOQA
     rs = pm_client.process_list()

@@ -58,7 +58,6 @@ func (d *diffDisk) Expand(size int64) {
 
 	d.location = append(d.location, make([]byte, newLocationSize-len(d.location))...)
 	d.size = size
-	return
 }
 
 func (d *diffDisk) WriteAt(buf []byte, offset int64) (int, error) {
@@ -220,32 +219,42 @@ func (d *diffDisk) fullReadAt(buf []byte, offset int64) (int, error) {
 	return count, nil
 }
 
-func (d *diffDisk) read(target byte, buf []byte, startOffset int64, startSector int64, sectors int64) (int, error) {
+// read called by fullReadAt reads the data from the target disk into buf
+// offset is the offset of the whole volume
+// startSector indicates the sector in the buffer from which the data should be read from the target disk.
+// sectors indicates how many sectors we are going to read
+func (d *diffDisk) read(target byte, buf []byte, offset int64, startSector int64, sectors int64) (int, error) {
 	bufStart := startSector * d.sectorSize
 	bufLength := sectors * d.sectorSize
-	offset := startOffset + bufStart
-	size, err := d.files[target].Size()
+	diskReadStartOffset := offset + bufStart
+	diskReadEndOffset := diskReadStartOffset + bufLength
+	diskSize, err := d.files[target].Size()
 	if err != nil {
 		return 0, err
 	}
+	volumeSize := d.size
 
-	// Reading the out-of-bound part is not allowed
-	if bufLength > d.size-offset {
-		logrus.Warn("Trying to read the out-of-bound part")
-		return 0, io.ErrUnexpectedEOF
+	count := 0
+
+	if diskReadStartOffset < diskSize {
+		newBuf := buf[bufStart : bufStart+min(bufLength, diskSize-diskReadStartOffset)]
+		n, err := d.files[target].ReadAt(newBuf, diskReadStartOffset)
+		if err != nil {
+			return n, err
+		}
+		count += n
+	}
+	if diskReadEndOffset <= diskSize {
+		return count, nil
 	}
 
-	// May read the expanded part
-	if offset >= size {
-		return 0, nil
+	// Read out of disk boundary but still in Volume boundary, we should remain the valid range with 0 and return the correct count
+	if diskReadEndOffset <= volumeSize {
+		return count + int(diskReadEndOffset-max(diskSize, diskReadStartOffset)), nil
 	}
-	var newBuf []byte
-	if bufLength > size-offset {
-		newBuf = buf[bufStart : bufStart+size-offset]
-	} else {
-		newBuf = buf[bufStart : bufStart+bufLength]
-	}
-	return d.files[target].ReadAt(newBuf, offset)
+
+	// Read out of Volume boundary, we should remain the valid range with 0 and return the correct count with EOF error
+	return count + int(volumeSize-max(diskSize, diskReadStartOffset)), io.ErrUnexpectedEOF
 }
 
 func (d *diffDisk) lookup(sector int64) (byte, error) {
@@ -280,10 +289,11 @@ func (d *diffDisk) lookup(sector int64) (byte, error) {
 }
 
 func (d *diffDisk) UnmapAt(unmappableDisks []string, length uint32, offset int64) (int, error) {
-	if length == 0 {
+	if length < uint32(d.sectorSize) {
 		return 0, nil
 	}
 
+	origLength := length
 	startSectorOffset := offset % d.sectorSize
 	endSectorOffset := (int64(length) + offset) % d.sectorSize
 
@@ -294,8 +304,15 @@ func (d *diffDisk) UnmapAt(unmappableDisks []string, length uint32, offset int64
 	if endSectorOffset != 0 {
 		length -= uint32(endSectorOffset)
 	}
-	if length <= 0 {
+	if length == 0 {
 		return 0, nil
+	}
+
+	// The the final length must be smaller than original length. The following case should not happen.
+	// The only case is the length is calculated to a negative number and then overflows a large number.
+	// This protection mechanism avoids unmapping the abnormal length and returns errors.
+	if origLength < length {
+		return 0, fmt.Errorf("final unmap length(%v) should not be larger than original length(%v)", length, origLength)
 	}
 
 	var unmappedSizeErr error

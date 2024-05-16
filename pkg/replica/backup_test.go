@@ -21,7 +21,7 @@ func (s *TestSuite) TestBackup(c *C) {
 	err = os.Chdir(dir)
 	c.Assert(err, IsNil)
 
-	r, err := New(10*mb, bs, dir, nil, false, false)
+	r, err := New(10*mb, bs, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -87,7 +87,7 @@ func (s *TestSuite) testBackupWithBackups(c *C, backingFile *backingfile.Backing
 	c.Assert(err, IsNil)
 	volume := "test"
 
-	r, err := New(10*mb, bs, dir, backingFile, false, false)
+	r, err := New(10*mb, bs, dir, backingFile, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -173,6 +173,7 @@ func (s *TestSuite) testBackupWithBackups(c *C, backingFile *backingfile.Backing
 
 	// Test 003 -> 002
 	err = rb.OpenSnapshot(snap3, volume)
+	c.Assert(err, IsNil)
 	mappings, err = rb.CompareSnapshot(snap3, snap2, volume)
 	c.Assert(err, IsNil)
 	c.Assert(len(mappings.Mappings), Equals, 2)
@@ -182,6 +183,7 @@ func (s *TestSuite) testBackupWithBackups(c *C, backingFile *backingfile.Backing
 	c.Assert(mappings.Mappings[1].Offset, Equals, int64(8*mb))
 	c.Assert(mappings.Mappings[1].Size, Equals, int64(2*mb))
 	err = rb.CloseSnapshot(snap3, volume)
+	c.Assert(err, IsNil)
 
 	// Test 002 -> 001
 	err = rb.OpenSnapshot(snap2, volume)

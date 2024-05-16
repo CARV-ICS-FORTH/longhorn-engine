@@ -6,21 +6,24 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/longhorn/types/pkg/generated/enginerpc"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/longhorn/longhorn-engine/pkg/dataconn"
+	"github.com/longhorn/longhorn-engine/pkg/interceptor"
 	replicaClient "github.com/longhorn/longhorn-engine/pkg/replica/client"
 	"github.com/longhorn/longhorn-engine/pkg/types"
 	"github.com/longhorn/longhorn-engine/pkg/util"
-	"github.com/longhorn/longhorn-engine/proto/ptypes"
 )
 
 const (
-	PingInterval = 2 * time.Second
+	PingInterval        = 2 * time.Second
+	NumberOfConnections = 2
 )
 
 func New() types.BackendFactory {
@@ -45,18 +48,18 @@ type Remote struct {
 
 func (r *Remote) Close() error {
 	logrus.Infof("Closing: %s", r.name)
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithInsecure(),
-		ptypes.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
 	}
 	defer conn.Close()
-	replicaServiceClient := ptypes.NewReplicaServiceClient(conn)
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
 	defer cancel()
 
-	if _, err := replicaServiceClient.ReplicaClose(ctx, &empty.Empty{}); err != nil {
+	if _, err := replicaServiceClient.ReplicaClose(ctx, &emptypb.Empty{}); err != nil {
 		return errors.Wrapf(err, "failed to close replica %v from remote", r.replicaServiceURL)
 	}
 
@@ -65,18 +68,18 @@ func (r *Remote) Close() error {
 
 func (r *Remote) open() error {
 	logrus.Infof("Opening remote: %s", r.name)
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithInsecure(),
-		ptypes.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
 	}
 	defer conn.Close()
-	replicaServiceClient := ptypes.NewReplicaServiceClient(conn)
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
 	defer cancel()
 
-	if _, err := replicaServiceClient.ReplicaOpen(ctx, &empty.Empty{}); err != nil {
+	if _, err := replicaServiceClient.ReplicaOpen(ctx, &emptypb.Empty{}); err != nil {
 		return errors.Wrapf(err, "failed to open replica %v from remote", r.replicaServiceURL)
 	}
 
@@ -86,18 +89,18 @@ func (r *Remote) open() error {
 func (r *Remote) Snapshot(name string, userCreated bool, created string, labels map[string]string) error {
 	logrus.Infof("Starting to snapshot: %s %s UserCreated %v Created at %v, Labels %v",
 		r.name, name, userCreated, created, labels)
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithInsecure(),
-		ptypes.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
 	}
 	defer conn.Close()
-	replicaServiceClient := ptypes.NewReplicaServiceClient(conn)
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
 	defer cancel()
 
-	if _, err := replicaServiceClient.ReplicaSnapshot(ctx, &ptypes.ReplicaSnapshotRequest{
+	if _, err := replicaServiceClient.ReplicaSnapshot(ctx, &enginerpc.ReplicaSnapshotRequest{
 		Name:        name,
 		UserCreated: userCreated,
 		Created:     created,
@@ -116,18 +119,18 @@ func (r *Remote) Expand(size int64) (err error) {
 		err = types.WrapError(err, "failed to expand replica %v from remote", r.replicaServiceURL)
 	}()
 
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithInsecure(),
-		ptypes.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
 	}
 	defer conn.Close()
-	replicaServiceClient := ptypes.NewReplicaServiceClient(conn)
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
 	defer cancel()
 
-	if _, err := replicaServiceClient.ReplicaExpand(ctx, &ptypes.ReplicaExpandRequest{
+	if _, err := replicaServiceClient.ReplicaExpand(ctx, &enginerpc.ReplicaExpandRequest{
 		Size: size,
 	}); err != nil {
 		return types.UnmarshalGRPCError(err)
@@ -139,18 +142,18 @@ func (r *Remote) Expand(size int64) (err error) {
 func (r *Remote) SetRevisionCounter(counter int64) error {
 	logrus.Infof("Set revision counter of %s to : %v", r.name, counter)
 
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithInsecure(),
-		ptypes.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
 	}
 	defer conn.Close()
-	replicaServiceClient := ptypes.NewReplicaServiceClient(conn)
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
 	defer cancel()
 
-	if _, err := replicaServiceClient.RevisionCounterSet(ctx, &ptypes.RevisionCounterSetRequest{
+	if _, err := replicaServiceClient.RevisionCounterSet(ctx, &enginerpc.RevisionCounterSetRequest{
 		Counter: counter,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to set revision counter to %d for replica %v from remote", counter, r.replicaServiceURL)
@@ -210,16 +213,16 @@ func (r *Remote) SectorSize() (int64, error) {
 	return replicaInfo.SectorSize, nil
 }
 
-func (r *Remote) RemainSnapshots() (int, error) {
+func (r *Remote) GetSnapshotCountAndSizeUsage() (int, int64, error) {
 	replicaInfo, err := r.info()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	switch replicaInfo.State {
 	case "open", "dirty", "rebuilding":
-		return replicaInfo.RemainSnapshots, nil
+		return replicaInfo.SnapshotCountUsage, replicaInfo.SnapshotSizeUsage, nil
 	}
-	return 0, fmt.Errorf("invalid state %v for counting snapshots", replicaInfo.State)
+	return 0, 0, fmt.Errorf("invalid state %v for counting snapshots", replicaInfo.State)
 }
 
 func (r *Remote) GetRevisionCounter() (int64, error) {
@@ -255,18 +258,18 @@ func (r *Remote) GetUnmapMarkSnapChainRemoved() (bool, error) {
 func (r *Remote) SetUnmapMarkSnapChainRemoved(enabled bool) error {
 	logrus.Infof("Setting UnmapMarkSnapChainRemoved of %s to : %v", r.name, enabled)
 
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithInsecure(),
-		ptypes.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "failed connecting to ReplicaService %v", r.replicaServiceURL)
 	}
 	defer conn.Close()
-	replicaServiceClient := ptypes.NewReplicaServiceClient(conn)
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
 	defer cancel()
 
-	if _, err := replicaServiceClient.UnmapMarkDiskChainRemovedSet(ctx, &ptypes.UnmapMarkDiskChainRemovedSetRequest{
+	if _, err := replicaServiceClient.UnmapMarkDiskChainRemovedSet(ctx, &enginerpc.UnmapMarkDiskChainRemovedSetRequest{
 		Enabled: enabled,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to set UnmapMarkDiskChainRemoved to %v for replica %v from remote", enabled, r.replicaServiceURL)
@@ -287,19 +290,19 @@ func (r *Remote) ResetRebuild() error {
 
 	logrus.Warnf("Resetting %v rebuild", r.name)
 
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithInsecure(),
-		ptypes.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "failed connecting to ReplicaService %v", r.replicaServiceURL)
 	}
 	defer conn.Close()
 
-	replicaServiceClient := ptypes.NewReplicaServiceClient(conn)
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
 	defer cancel()
 
-	_, err = replicaServiceClient.RebuildingSet(ctx, &ptypes.RebuildingSetRequest{
+	_, err = replicaServiceClient.RebuildingSet(ctx, &enginerpc.RebuildingSetRequest{
 		Rebuilding: false,
 	})
 	if err != nil {
@@ -309,19 +312,67 @@ func (r *Remote) ResetRebuild() error {
 	return nil
 }
 
-func (r *Remote) info() (*types.ReplicaInfo, error) {
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithInsecure(),
-		ptypes.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+func (r *Remote) SetSnapshotMaxCount(count int) error {
+	logrus.Infof("Setting SnapshotMaxCount of %s to : %d", r.name, count)
+
+	conn, err := grpc.Dial(r.replicaServiceURL,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
-		return nil, errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
+		return errors.Wrapf(err, "cannot connect to ReplicaService %s", r.replicaServiceURL)
 	}
 	defer conn.Close()
-	replicaServiceClient := ptypes.NewReplicaServiceClient(conn)
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
 	defer cancel()
 
-	resp, err := replicaServiceClient.ReplicaGet(ctx, &empty.Empty{})
+	if _, err := replicaServiceClient.SnapshotMaxCountSet(ctx, &enginerpc.SnapshotMaxCountSetRequest{
+		Count: int32(count),
+	}); err != nil {
+		return errors.Wrapf(err, "failed to set SnapshotMaxCount to %d for replica %s from remote", count, r.replicaServiceURL)
+	}
+
+	return nil
+}
+
+func (r *Remote) SetSnapshotMaxSize(size int64) error {
+	logrus.Infof("Setting SnapshotMaxSize of %s to : %d", r.name, size)
+
+	conn, err := grpc.Dial(r.replicaServiceURL,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+	if err != nil {
+		return errors.Wrapf(err, "cannot connect to ReplicaService %s", r.replicaServiceURL)
+	}
+	defer conn.Close()
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
+
+	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
+	defer cancel()
+
+	if _, err := replicaServiceClient.SnapshotMaxSizeSet(ctx, &enginerpc.SnapshotMaxSizeSetRequest{
+		Size: size,
+	}); err != nil {
+		return errors.Wrapf(err, "failed to set SnapshotMaxSize to %d for replica %s from remote", size, r.replicaServiceURL)
+	}
+
+	return nil
+}
+
+func (r *Remote) info() (*types.ReplicaInfo, error) {
+	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
+	}
+	defer conn.Close()
+	replicaServiceClient := enginerpc.NewReplicaServiceClient(conn)
+
+	ctx, cancel := context.WithTimeout(context.Background(), replicaClient.GRPCServiceCommonTimeout)
+	defer cancel()
+
+	resp, err := replicaServiceClient.ReplicaGet(ctx, &emptypb.Empty{})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get replica %v info from remote", r.replicaServiceURL)
 	}
@@ -329,8 +380,9 @@ func (r *Remote) info() (*types.ReplicaInfo, error) {
 	return replicaClient.GetReplicaInfo(resp.Replica), nil
 }
 
-func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.DataServerProtocol, engineToReplicaTimeout time.Duration, replicaStreams int) (types.Backend, error) {
+func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.DataServerProtocol, engineToReplicaTimeout time.Duration) (types.Backend, error) {
 	logrus.Infof("Connecting to remote: %s (%v)", address, dataServerProtocol)
+
 	controlAddress, dataAddress, _, _, err := util.GetAddresses(volumeName, address, dataServerProtocol)
 	if err != nil {
 		return nil, err
@@ -355,29 +407,23 @@ func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.D
 		return nil, fmt.Errorf("replica must be closed, cannot add in state: %s", replica.State)
 	}
 
-	var clients []*dataconn.Client
-	for i := 0; i < replicaStreams; i++ {
+	var conns []net.Conn
+	for i := 0; i < NumberOfConnections; i++ {
 		conn, err := connect(dataServerProtocol, dataAddress)
 		if err != nil {
 			return nil, err
 		}
+		conns = append(conns, conn)
+	}
 
-		dataConnClient := dataconn.NewClient(conn, engineToReplicaTimeout)
-		clients = append(clients, dataConnClient)
-	}
-	if replicaStreams == 1 {
-		r.ReaderWriterUnmapperAt = clients[0]
-	} else {
-		r.ReaderWriterUnmapperAt = dataconn.NewMultiClient(clients)
-	}
+	dataConnClient := dataconn.NewClient(conns, engineToReplicaTimeout)
+	r.ReaderWriterUnmapperAt = dataConnClient
 
 	if err := r.open(); err != nil {
 		return nil, err
 	}
 
-	for i := 0; i < replicaStreams; i++ {
-		go r.monitorPing(clients[i])
-	}
+	go r.monitorPing(dataConnClient)
 
 	return r, nil
 }

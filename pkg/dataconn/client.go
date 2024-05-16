@@ -19,21 +19,25 @@ type Client struct {
 	seq       uint32
 	messages  [1024]*Message
 	msgQueue  lockfree.Queue
-	wire      *Wire
+	wires     []*Wire
 	peerAddr  string
 	opTimeout time.Duration
 }
 
 // NewClient replica client
-func NewClient(conn net.Conn, engineToReplicaTimeout time.Duration) *Client {
+func NewClient(conns []net.Conn, engineToReplicaTimeout time.Duration) *Client {
+	var wires []*Wire
+	for _, conn := range conns {
+		wires = append(wires, NewWire(conn))
+	}
 	newQueue := lockfree.NewQueue()
 	for i := 0; i < 1024; i++ {
 		newQueue.Enqueue(uint32(i))
 	}
 
 	c := &Client{
-		wire:      NewWire(conn),
-		peerAddr:  conn.RemoteAddr().String(),
+		wires:     wires,
+		peerAddr:  conns[0].RemoteAddr().String(),
 		end:       make(chan struct{}, 1024),
 		requests:  make(chan *Message, 1024),
 		send:      make(chan *Message, 1024),
@@ -42,8 +46,8 @@ func NewClient(conn net.Conn, engineToReplicaTimeout time.Duration) *Client {
 		msgQueue:  *newQueue,
 		opTimeout: engineToReplicaTimeout,
 	}
-	go c.write()
-	go c.read()
+	c.write()
+	c.read()
 	return c
 }
 
@@ -112,7 +116,9 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 
 // Close replica client
 func (c *Client) Close() {
-	c.wire.Close()
+	for _, wire := range c.wires {
+		wire.Close()
+	}
 	c.end <- struct{}{}
 }
 
@@ -122,6 +128,13 @@ func (c *Client) nextSeq() uint32 {
 }
 
 func (c *Client) replyError(req *Message, err error) {
+	if opErr := journal.RemovePendingOp(req.ID, false); opErr != nil {
+		logrus.WithError(opErr).WithFields(logrus.Fields{
+			"seq": req.Seq,
+			"id":  req.ID,
+		}).Warn("Error removing pending operation")
+	}
+	delete(c.messages, req.Seq)
 	req.Type = TypeError
 	req.Data = []byte(err.Error())
 	req.Complete <- struct{}{}
@@ -141,6 +154,20 @@ func (c *Client) handleRequest(req *Message) {
 }
 
 func (c *Client) handleResponse(resp *Message) {
+	if req, ok := c.messages[resp.Seq]; ok {
+		err := journal.RemovePendingOp(req.ID, true)
+		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"seq": resp.Seq,
+				"id":  req.ID,
+			}).Warn("Error removing pending operation")
+		}
+		delete(c.messages, resp.Seq)
+		req.Type = resp.Type
+		req.Size = resp.Size
+		req.Data = resp.Data
+		req.Complete <- struct{}{}
+	}
 
 	req := c.messages[resp.Seq]
 
@@ -152,25 +179,33 @@ func (c *Client) handleResponse(resp *Message) {
 }
 
 func (c *Client) write() {
-	for msg := range c.send {
-		if err := c.wire.Write(msg); err != nil {
-			c.responses <- &Message{
-				transportErr: err,
+	for _, wire := range c.wires {
+		go func(w *Wire) {
+			for msg := range c.send {
+				if err := w.Write(msg); err != nil {
+					c.responses <- &Message{
+						transportErr: err,
+					}
+				}
 			}
-		}
+		}(wire)
 	}
 }
 
 func (c *Client) read() {
-	for {
-		msg, err := c.wire.Read()
-		if err != nil {
-			logrus.WithError(err).Errorf("Error reading from wire %v", c.peerAddr)
-			c.responses <- &Message{
-				transportErr: err,
+	for _, wire := range c.wires {
+		go func(w *Wire) {
+			for {
+				msg, err := w.Read()
+				if err != nil {
+					logrus.WithError(err).Errorf("Error reading from wire %v", c.peerAddr)
+					c.responses <- &Message{
+						transportErr: err,
+					}
+					break
+				}
+				c.handleResponse(msg)
 			}
-			break
-		}
-		c.handleResponse(msg)
+		}(wire)
 	}
 }

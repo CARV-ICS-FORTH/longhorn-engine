@@ -3,6 +3,7 @@ package replica
 import (
 	"crypto/md5"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strconv"
@@ -56,7 +57,7 @@ func (s *TestSuite) TestCreate(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 }
@@ -72,7 +73,7 @@ func (s *TestSuite) TestSnapshot(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -157,7 +158,7 @@ func (s *TestSuite) TestRevert(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -269,7 +270,7 @@ func (s *TestSuite) TestRemoveLeafNode(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -344,7 +345,7 @@ func (s *TestSuite) TestRemoveLast(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -390,7 +391,7 @@ func (s *TestSuite) TestRemoveMiddle(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -436,7 +437,7 @@ func (s *TestSuite) TestRemoveFirst(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -467,7 +468,7 @@ func (s *TestSuite) TestRemoveOutOfChain(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -543,7 +544,7 @@ func (s *TestSuite) TestPrepareRemove(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -683,7 +684,7 @@ func (s *TestSuite) TestRead(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9*b, b, dir, nil, false, false)
+	r, err := New(9*b, b, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -693,12 +694,109 @@ func (s *TestSuite) TestRead(c *C) {
 	byteEquals(c, buf, make([]byte, 3*b))
 }
 
+func (s *TestSuite) TestReadBackingFileSmallerThanVolume(c *C) {
+	dir, err := os.MkdirTemp("", "replica")
+	c.Assert(err, IsNil)
+	defer os.RemoveAll(dir)
+
+	// Test read from BackingImage which is smaller than Volume
+	// BackinImage: [0:3b], Volume: [0:5b]
+	buf := make([]byte, 3*b)
+	fill(buf, 3)
+
+	f, err := NewTestBackingFile(path.Join(dir, "backing"))
+	c.Assert(err, IsNil)
+	defer f.Close()
+	_, err = f.Write(buf)
+	c.Assert(err, IsNil)
+
+	backing := &backingfile.BackingFile{
+		Path: "backing",
+		Disk: f,
+	}
+
+	r, err := New(5*b, b, dir, backing, false, false, 250, 0)
+	c.Assert(err, IsNil)
+	defer r.Close()
+
+	// Test Case 1: read within BackingImage boundary (read [1b:3b])
+	expectedData := make([]byte, 2*b)
+	fill(expectedData, 3)
+
+	data := make([]byte, 2*b)
+	n, err := r.ReadAt(data, 1*b)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 2*b)
+	byteEquals(c, expectedData, data)
+
+	// Test Case 2: read half within BackingImage boundary (read [2b:4b])
+	expectedData = make([]byte, 2*b)
+	fill(expectedData[0:b], 3)
+
+	data = make([]byte, 2*b)
+	n, err = r.ReadAt(data, 2*b)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 2*b)
+	byteEquals(c, expectedData, data)
+
+	// Test Case 3: read out of BackingImage boundary but within Volume boundary (read [3b:5b])
+	expectedData = make([]byte, 2*b)
+	fill(expectedData, 0)
+
+	data = make([]byte, 2*b)
+	n, err = r.ReadAt(data, 3*b)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 2*b)
+	byteEquals(c, expectedData, data)
+
+	// Test Case 4: read half within Volume boundary (read [4b:6b])
+	expectedData = make([]byte, 2*b)
+	fill(expectedData, 0)
+
+	data = make([]byte, 2*b)
+	n, err = r.ReadAt(data, 4*b)
+	c.Assert(err, Equals, io.ErrUnexpectedEOF)
+	c.Assert(n, Equals, b)
+	byteEquals(c, expectedData, data)
+
+	// Test Case 5: read out of Volume boundary (read [5b:7b])
+	expectedData = make([]byte, 2*b)
+	fill(expectedData, 0)
+
+	data = make([]byte, 2*b)
+	n, err = r.ReadAt(data, 5*b)
+	c.Assert(err, Equals, io.ErrUnexpectedEOF)
+	c.Assert(n, Equals, 0)
+	byteEquals(c, expectedData, data)
+
+	// Test Case 6: read [2b:6b]
+	expectedData = make([]byte, 4*b)
+	fill(expectedData[0:b], 3)
+	fill(expectedData[b:4*b], 0)
+
+	data = make([]byte, 4*b)
+	n, err = r.ReadAt(data, 2*b)
+	c.Assert(err, Equals, io.ErrUnexpectedEOF)
+	c.Assert(n, Equals, 3*b)
+	byteEquals(c, expectedData, data)
+
+	// Test Case 6: read [3b:6b]
+	expectedData = make([]byte, 3*b)
+	fill(expectedData[b:3*b], 0)
+
+	data = make([]byte, 3*b)
+	n, err = r.ReadAt(data, 3*b)
+	c.Assert(err, Equals, io.ErrUnexpectedEOF)
+	c.Assert(n, Equals, 2*b)
+	byteEquals(c, expectedData, data)
+}
+
 func (s *TestSuite) TestWrite(c *C) {
 	dir, err := os.MkdirTemp("", "replica")
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9*b, b, dir, nil, false, false)
+	r, err := New(9*b, b, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -720,7 +818,7 @@ func (s *TestSuite) TestSnapshotReadWrite(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(3*b, b, dir, nil, false, false)
+	r, err := New(3*b, b, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -735,11 +833,13 @@ func (s *TestSuite) TestSnapshotReadWrite(c *C) {
 	fill(buf[b:2*b], 2)
 	count, err = r.WriteAt(buf[b:2*b], b)
 	c.Assert(count, Equals, b)
+	c.Assert(err, IsNil)
 	err = r.Snapshot("001", true, getNow(), nil)
 	c.Assert(err, IsNil)
 
 	fill(buf[:b], 1)
 	count, err = r.WriteAt(buf[:b], 0)
+	c.Assert(err, IsNil)
 	c.Assert(count, Equals, b)
 	err = r.Snapshot("002", true, getNow(), nil)
 	c.Assert(err, IsNil)
@@ -780,7 +880,7 @@ func (s *TestSuite) TestBackingFile(c *C) {
 		Disk: f,
 	}
 
-	r, err := New(3*b, b, dir, backing, false, false)
+	r, err := New(3*b, b, dir, backing, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -813,7 +913,7 @@ func (s *TestSuite) partialWriteRead(c *C, totalLength, writeLength, writeOffset
 	buf := make([]byte, totalLength)
 	fill(buf, 3)
 
-	r, err := New(totalLength, b, dir, nil, false, false)
+	r, err := New(totalLength, b, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -861,7 +961,7 @@ func (s *TestSuite) testPartialRead(c *C, totalLength int64, readBuf []byte, off
 	buf := make([]byte, totalLength)
 	fill(buf, 3)
 
-	r, err := New(totalLength, b, dir, nil, false, false)
+	r, err := New(totalLength, b, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -932,7 +1032,7 @@ func (s *TestSuite) TestForceRemoveDiffDisk(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, false)
+	r, err := New(9, 3, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -976,7 +1076,7 @@ func (s *TestSuite) TestUnmapMarkDiskRemoved(c *C) {
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
 
-	r, err := New(9, 3, dir, nil, false, true)
+	r, err := New(9, 3, dir, nil, false, true, 250, 0)
 	c.Assert(err, IsNil)
 	defer r.Close()
 
@@ -1020,4 +1120,66 @@ func (s *TestSuite) TestUnmapMarkDiskRemoved(c *C) {
 	c.Assert(r.activeDiskData[1].Name, Equals, "volume-snap-000.img")
 	c.Assert(r.activeDiskData[1].Removed, Equals, false)
 	c.Assert(r.activeDiskData[1].Parent, Equals, "")
+}
+
+func (s *TestSuite) TestUnmap(c *C) {
+	dir, err := os.MkdirTemp("", "replica")
+	c.Assert(err, IsNil)
+	defer os.RemoveAll(dir)
+
+	r, err := New(8*b, b, dir, nil, false, false, 250, 0)
+	c.Assert(err, IsNil)
+	defer r.Close()
+
+	buf := make([]byte, 8*b)
+	fill(buf, 1)
+	_, err = r.WriteAt(buf, 0)
+	c.Assert(err, IsNil)
+
+	// default sector size is 4096, we follow this assumption in the test
+	// offset = 0, unmap length = 0: 0 sectors can be unmapped
+	ret, err := r.UnmapAt(0, 0)
+	c.Assert(err, IsNil)
+	c.Assert(ret, Equals, 0)
+
+	// offset = 0, unmap length = 512: 0 sectors can be unmapped
+	ret, err = r.UnmapAt(512, 0)
+	c.Assert(err, IsNil)
+	c.Assert(ret, Equals, 0)
+
+	// offset = 0, unmap length = 4096: 1 sector can be unmapped
+	ret, err = r.UnmapAt(b, 0)
+	c.Assert(err, IsNil)
+	c.Assert(ret, Equals, 4096)
+	_, err = r.WriteAt(buf, 0)
+	c.Assert(err, IsNil)
+
+	// offset = 0, unmap length = 4097: 1 sector can be unmapped
+	ret, err = r.UnmapAt(b+1, 0)
+	c.Assert(err, IsNil)
+	c.Assert(ret, Equals, 4096)
+	_, err = r.WriteAt(buf, 0)
+	c.Assert(err, IsNil)
+
+	// offset = 1, unmap length = 512: 0 sectors can be unmapped
+	ret, err = r.UnmapAt(512, 1)
+	c.Assert(err, IsNil)
+	c.Assert(ret, Equals, 0)
+
+	// offset = 1, unmap length = 4096: 0 sector can be unmapped
+	ret, err = r.UnmapAt(b, 1)
+	c.Assert(err, IsNil)
+	c.Assert(ret, Equals, 0)
+
+	// offset = 2048, unmap length = 8192: 1 sector can be unmapped
+	ret, err = r.UnmapAt(2*b, 2048)
+	c.Assert(err, IsNil)
+	c.Assert(ret, Equals, 4096)
+	_, err = r.WriteAt(buf, 0)
+	c.Assert(err, IsNil)
+
+	// offset = 2048, unmap length = 3072: 0 sector can be unmapped
+	ret, err = r.UnmapAt(b+1024, 2048)
+	c.Assert(err, IsNil)
+	c.Assert(ret, Equals, 0)
 }

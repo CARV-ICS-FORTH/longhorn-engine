@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -12,13 +13,16 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"k8s.io/mount-utils"
 
-	iutil "github.com/longhorn/go-iscsi-helper/util"
+	lhexec "github.com/longhorn/go-common-libs/exec"
+	lhns "github.com/longhorn/go-common-libs/ns"
+	lhutils "github.com/longhorn/go-common-libs/utils"
+	"github.com/longhorn/types/pkg/generated/enginerpc"
 
 	"github.com/longhorn/longhorn-engine/pkg/types"
 	"github.com/longhorn/longhorn-engine/pkg/util"
 	diskutil "github.com/longhorn/longhorn-engine/pkg/util/disk"
-	"github.com/longhorn/longhorn-engine/proto/ptypes"
 )
 
 type Controller struct {
@@ -33,7 +37,6 @@ type Controller struct {
 	isUpgrade                 bool
 	iscsiTargetRequestTimeout time.Duration
 	engineReplicaTimeout      time.Duration
-	replicaStreams            int
 	DataServerProtocol        types.DataServerProtocol
 
 	isExpanding             bool
@@ -41,6 +44,10 @@ type Controller struct {
 	salvageRequested        bool
 
 	unmapMarkSnapChainRemoved bool
+
+	snapshotFreezeLock sync.Mutex
+	snapshotMaxCount   int
+	SnapshotMaxSize    int64
 
 	GRPCAddress string
 	GRPCServer  *grpc.Server
@@ -55,7 +62,7 @@ type Controller struct {
 	// lastExpansionFailedAt indicates if the error belongs to the recent expansion
 	lastExpansionFailedAt string
 	// lastExpansionError indicates the error message.
-	// It may exist even if the expansion succeeded. For exmaple, some of the replica expansions failed.
+	// It may exist even if the expansion succeeded. For example, some of the replica expansions failed.
 	lastExpansionError string
 
 	fileSyncHTTPClientTimeout int
@@ -64,13 +71,11 @@ type Controller struct {
 }
 
 const (
-	freezeTimeout         = 60 * time.Minute // qemu uses 60 minute timeouts for freezing
-	syncTimeout           = 60 * time.Minute
 	lastModifyCheckPeriod = 5 * time.Second
 )
 
 func NewController(name string, factory types.BackendFactory, frontend types.Frontend, isUpgrade, disableRevCounter, salvageRequested, unmapMarkSnapChainRemoved bool,
-	iscsiTargetRequestTimeout, engineReplicaTimeout time.Duration, replicaStreams int, dataServerProtocol types.DataServerProtocol, fileSyncHTTPClientTimeout int, frontendQueues int) *Controller {
+	iscsiTargetRequestTimeout, engineReplicaTimeout time.Duration, replicaStreams int, dataServerProtocol types.DataServerProtocol, fileSyncHTTPClientTimeout, snapshotMaxCount int, snapshotMaxSize int64,frontendQueues int) *Controller {
 	c := &Controller{
 		factory:       factory,
 		VolumeName:    name,
@@ -82,10 +87,11 @@ func NewController(name string, factory types.BackendFactory, frontend types.Fro
 		revisionCounterDisabled:   disableRevCounter,
 		salvageRequested:          salvageRequested,
 		unmapMarkSnapChainRemoved: unmapMarkSnapChainRemoved,
+		snapshotMaxCount:          snapshotMaxCount,
+		SnapshotMaxSize:           snapshotMaxSize,
 
 		iscsiTargetRequestTimeout: iscsiTargetRequestTimeout,
 		engineReplicaTimeout:      engineReplicaTimeout,
-		replicaStreams:            replicaStreams,
 		DataServerProtocol:        dataServerProtocol,
 
 		fileSyncHTTPClientTimeout: fileSyncHTTPClientTimeout,
@@ -169,7 +175,7 @@ func (c *Controller) addReplica(address string, snapshotRequired bool, mode type
 		return err
 	}
 
-	newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.engineReplicaTimeout, c.replicaStreams)
+	newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.engineReplicaTimeout)
 	if err != nil {
 		return err
 	}
@@ -185,38 +191,123 @@ func (c *Controller) addReplica(address string, snapshotRequired bool, mode type
 	return c.addReplicaNoLock(newBackend, address, snapshotRequired, mode)
 }
 
-// Snapshot will try to freeze the filesystem of the volume if possible
-// and will fallback to a system level sync in all other cases
-func (c *Controller) Snapshot(name string, labels map[string]string) (string, error) {
+// If shouldFreeze, Snapshot attempts to freeze the mounted filesystem on the volume's root partition. If it fails to
+// do so, Snapshot attempts to clean up and returns an error. If not shouldFreeze or if a mounted filesystem is not
+// detected on the volume's root partition, Snapshot does a best effort sync and takes a snapshot.
+func (c *Controller) Snapshot(inputName string, labels map[string]string, shouldFreeze bool) (name string, err error) {
+	name = inputName
+	if name == "" {
+		name = lhutils.UUID()
+	}
+
 	log := logrus.WithFields(logrus.Fields{"volume": c.VolumeName, "snapshot": name})
 	log.Info("Starting snapshot")
-	if ne, err := iutil.NewNamespaceExecutor(util.GetInitiatorNS()); err != nil {
-		log.WithError(err).Errorf("WARNING: continue to snapshot for %v, but cannot sync due to cannot get the namespace executor", name)
-	} else {
+
+	defer func() {
+		if err != nil {
+			// The gRPC server returns, but does not log, errors.
+			log.WithError(err).Errorf("Failed to snapshot")
+		}
+	}()
+
+	var endpoint string
+	c.RLock()
+	// Check now to avoid freezing or syncing unnecessarily. Also check again later as originally designed.
+	err = c.canDoSnapshot()
+	if c.frontend.FrontendName() == types.EngineFrontendBlockDev {
+		// It is meaningless to try to freeze filesystems for a tgt-iscsi endpoint.
+		endpoint = c.Endpoint()
+	}
+	c.RUnlock()
+	if err != nil {
+		return "", err
+	}
+
+	var mounted, frozen bool
+	freezePoint := util.GetFreezePointFromDevicePath(endpoint)
+	mounter := mount.New("")
+	exec := lhexec.NewExecutor()
+	defer func() {
+		if frozen {
+			log.Infof("Unfreezing filesystem mounted at %v", freezePoint)
+			if _, err := util.UnfreezeFilesystem(freezePoint, exec); err != nil {
+				log.WithError(err).Warnf("Failed to unfreeze filesystem mounted at %v", freezePoint)
+			}
+		}
+		if mounted {
+			log.Debugf("Unmounting filesystem mounted at %v", freezePoint)
+			if err := mount.CleanupMountPoint(freezePoint, mounter, false); err != nil {
+				log.WithError(err).Warnf("Failed to unmount filesystem mounted at %v", freezePoint)
+			}
+		}
+	}()
+
+	// We create a bind mount of one of the discovered mount points (it does not matter which one) inside the container
+	// mount namespace (assuming longhorn-engine is running in a container). The mount point cannot be unmounted except
+	// by us, so we can be confident it is safe to freeze. This approach is preferable to locking some source mount
+	// point with an open file descriptor because it cannot be circumvented by a lazy unmount at the source.
+	if shouldFreeze && endpoint != "" {
+		if !c.snapshotFreezeLock.TryLock() {
+			// Two simultaneous freeze attempts could cause weird behaviors (e.g. the second operation could bind mount
+			// on top of the bind mount created by the first). There is no particular reason we should support multiple
+			// snapshots in quick succession, so just return.
+			return "", errors.New("filesystem is already being frozen for a different snapshot")
+		}
+		defer c.snapshotFreezeLock.Unlock()
+		mounted, frozen, err = tryFreeze(endpoint, freezePoint, mounter, exec, log)
+		if err != nil {
+			return "", err
+		}
+		if !frozen {
+			log.Debug("Did not detect mounted filesystem while snapshotting; continuing without freeze")
+		}
+	}
+	if !frozen {
+		// Revert to the previous/default behavior of syncing before taking a snapshot.
 		log.Info("Requesting system sync before snapshot")
-		if _, err := ne.ExecuteWithTimeout(syncTimeout, "sync", []string{}); err != nil {
-			// sync should never fail though, so it more like due to the nsenter
-			log.WithError(err).Errorf("WARNING: failed to sync continuing with snapshot for %v", name)
+		if err := lhns.Sync(); err != nil {
+			// Sync should never fail, so it is likely due to the nsenter. To maintain existing behavior, we do not
+			// refuse to take a snapshot if sync fails.
+			log.WithError(err).Errorf("WARNING: failed to sync before snapshot; continuing without freeze or sync")
 		}
 	}
 
 	c.Lock()
 	defer c.Unlock()
-
-	if name == "" {
-		name = util.UUID()
-	}
-
-	if _, err := c.backend.RemainSnapshots(); err != nil {
+	if err = c.canDoSnapshot(); err != nil {
 		return "", err
 	}
 
 	created := util.Now()
-	if err := c.handleErrorNoLock(c.backend.Snapshot(name, true, created, labels)); err != nil {
+	if err = c.handleErrorNoLock(c.backend.Snapshot(name, true, created, labels)); err != nil {
 		return "", err
 	}
 	log.Info("Finished snapshot")
 	return name, nil
+}
+
+func (c *Controller) canDoSnapshot() error {
+	countUsage, sizeUsage, err := c.backend.GetSnapshotCountAndSizeUsage()
+	if err != nil {
+		return err
+	}
+	if countUsage >= c.snapshotMaxCount {
+		return fmt.Errorf("snapshot count usage %d is equal or larger than snapshotMaxCount %d", countUsage, c.snapshotMaxCount)
+	}
+	// if SnapshotMaxSize is 0, it means no limit
+	if c.SnapshotMaxSize == 0 {
+		return nil
+	}
+
+	headFileSize, err := c.backend.GetHeadFileSize()
+	if err != nil {
+		return err
+	}
+	remainSize := c.SnapshotMaxSize - sizeUsage
+	if headFileSize > remainSize {
+		return fmt.Errorf("snapshot free space %d is not enough for head file %d", remainSize, headFileSize)
+	}
+	return nil
 }
 
 func (c *Controller) Expand(size int64) error {
@@ -241,19 +332,15 @@ func (c *Controller) Expand(size int64) error {
 
 		// We perform a system level sync without the lock. Cannot block read/write
 		// Can be improved to only sync the filesystem on the block device later
-		if ne, err := iutil.NewNamespaceExecutor(util.GetInitiatorNS()); err != nil {
-			logrus.WithError(err).Errorf("WARNING: continue to expand to size %v for %v, but cannot sync due to cannot get the namespace executor", size, c.VolumeName)
-		} else {
-			if _, err := ne.ExecuteWithTimeout(syncTimeout, "sync", []string{}); err != nil {
-				// sync should never fail though, so it more like due to the nsenter
-				logrus.WithError(err).Errorf("WARNING: continue to expand to size %v for %v, but sync failed", size, c.VolumeName)
-			}
+		if err := lhns.Sync(); err != nil {
+			// sync should never fail though, so it more like due to the nsenter
+			logrus.WithError(err).Errorf("WARNING: continue to expand to size %v for %v, but sync failed", size, c.VolumeName)
 		}
 
 		// Should block R/W during the expansion.
 		c.Lock()
 		defer c.Unlock()
-		if _, err := c.backend.RemainSnapshots(); err != nil {
+		if err := c.canDoSnapshot(); err != nil {
 			logrus.WithError(err).Error("Cannot get remain snapshot count before expansion")
 			return
 		}
@@ -356,11 +443,14 @@ func (c *Controller) addReplicaNoLock(newBackend types.Backend, address string, 
 	}
 
 	if snapshot && mode != types.ERR {
-		uuid := util.UUID()
+		uuid := lhutils.UUID()
 		created := util.Now()
 
-		if _, err := c.backend.RemainSnapshots(); err != nil {
-			return err
+		// if there is no replica, we don't need to check whether remaining replica can do snapshot
+		if len(c.backend.backends) != 0 {
+			if err := c.canDoSnapshot(); err != nil {
+				return err
+			}
 		}
 
 		if err := c.backend.Snapshot(uuid, false, created, nil); err != nil {
@@ -533,7 +623,7 @@ func (c *Controller) salvageRevisionCounterDisabledReplicas() error {
 			return err
 		}
 
-		repHeadFileSize, err := c.backend.backends[r.Address].backend.GetLastModifyTime()
+		repHeadFileSize, err := c.backend.backends[r.Address].backend.GetHeadFileSize()
 		if err != nil {
 			return err
 		}
@@ -666,6 +756,82 @@ func (c *Controller) checkUnmapMarkSnapChainRemoved() error {
 	return nil
 }
 
+func (c *Controller) SetSnapshotMaxCount(count int) error {
+	c.Lock()
+	defer c.Unlock()
+
+	countUsage, _, err := c.backend.GetSnapshotCountAndSizeUsage()
+	if err != nil {
+		return err
+	}
+
+	if count < countUsage {
+		return fmt.Errorf("cannot set snapshotMaxCount=%d smaller than current snapshot count usage=%d, please purge snapshots first", count, countUsage)
+	}
+
+	c.snapshotMaxCount = count
+
+	for _, r := range c.replicas {
+		// The related backend is nil if the mode is ERR
+		if r.Mode == types.ERR {
+			continue
+		}
+		err := c.backend.SetSnapshotMaxCount(r.Address, count)
+		if err != nil {
+			logrus.Errorf("failed to set flag SnapshotMaxCount to %d in replica %s, err: %v", count, r.Address, err)
+			return fmt.Errorf("failed to set flag SnapshotMaxCount to %d in replica %s, err: %v", count, r.Address, err)
+		}
+	}
+
+	logrus.Infof("Controller set flag snapshotMaxCount=%d for backend replicas", count)
+
+	return nil
+}
+
+func (c *Controller) GetSnapshotMaxCount() int {
+	c.RLock()
+	defer c.RUnlock()
+	return c.snapshotMaxCount
+}
+
+func (c *Controller) SetSnapshotMaxSize(size int64) error {
+	c.Lock()
+	defer c.Unlock()
+
+	_, sizeUsage, err := c.backend.GetSnapshotCountAndSizeUsage()
+	if err != nil {
+		return err
+	}
+
+	if size < sizeUsage {
+		return fmt.Errorf("cannot set snapshotMaxSize=%d smaller than current snapshot size usage=%d, please purge snapshots first", size, sizeUsage)
+	}
+
+	c.SnapshotMaxSize = size
+
+	for _, r := range c.replicas {
+		// The related backend is nil if the mode is ERR
+		if r.Mode == types.ERR {
+			continue
+		}
+		err := c.backend.SetSnapshotMaxSize(r.Address, size)
+		if err != nil {
+			logrus.Errorf("Failed to set flag SnapshotMaxSize to %d in replica %s, err: %v", size, r.Address, err)
+			return fmt.Errorf("Failed to set flag SnapshotMaxSize to %d in replica %s, err: %v", size, r.Address, err)
+		}
+	}
+
+	logrus.Infof("Controller set flag SnapshotMaxSize=%d for backend replicas", size)
+
+	return nil
+}
+
+func (c *Controller) GetSnapshotMaxSize() int64 {
+	c.RLock()
+	defer c.RUnlock()
+	return c.SnapshotMaxSize
+}
+
 func isReplicaInInvalidState(state string) bool {
 	return state != string(types.ReplicaStateOpen) && state != string(types.ReplicaStateDirty)
 }
@@ -733,7 +899,7 @@ func (c *Controller) Start(volumeSize, volumeCurrentSize int64, addresses ...str
 	errorCodes := map[string]codes.Code{}
 	first := true
 	for _, address := range addresses {
-		newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.engineReplicaTimeout, c.replicaStreams)
+		newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.engineReplicaTimeout)
 		if err != nil {
 			if strings.Contains(err.Error(), "rpc error: code = Unavailable") {
 				errorCodes[address] = codes.Unavailable
@@ -954,17 +1120,28 @@ func (c *Controller) UnmapAt(length uint32, off int64) (int, error) {
 	c.RLock()
 
 	if off < 0 || off+int64(length) > c.size {
-		err := fmt.Errorf("EOF: Unmap of %v bytes at offset %v is beyond volume size %v", length, off, c.size)
+		// This is a legitimate error (which is handled by tgt/liblonghorn at a higher level). Since tgt/liblonghorn
+		// does not actually print the error, print it here.
+		err := fmt.Errorf("EOF: unmap of %v bytes at offset %v is beyond volume size %v", length, off, c.size)
+		logrus.WithError(err).Error("Failed to unmap")
 		c.RUnlock()
 		return 0, err
 	}
 	if c.hasWOReplica() {
-		err := fmt.Errorf("can not unmap volume when there is WO replica")
+		// Cannot unmap during rebuilding. See https://github.com/longhorn/longhorn/issues/7103 for context. It is legal
+		// to not complete the unmap operation, so simply respond that 0 blocks were unmapped. Otherwise, VM workloads
+		// will remain paused for the entire duration of the rebuild.
+		err := fmt.Errorf("cannot unmap %v bytes at offset %v while rebuilding is in progress", length, off)
+		logrus.WithError(err).Warn("Failed to unmap")
 		c.RUnlock()
-		return 0, err
+		return 0, nil
 	}
 	if c.isExpanding {
-		err := fmt.Errorf("can not unmap volume during expansion")
+		// Cannot unmap during expansion. We could return no error (as we do in the rebuilding case), but expansion
+		// should be fast. It is better to return the error, letting the filesystem know that blocks have not been
+		// trimmed, so it can try again.
+		err := fmt.Errorf("cannot unmap %v bytes at offset %v while expansion in is progress", length, off)
+		logrus.WithError(err).Error("Failed to unmap")
 		c.RUnlock()
 		return 0, err
 	}
@@ -1101,7 +1278,9 @@ func (c *Controller) monitoring(address string, backend types.Backend) {
 	err := <-monitorChan
 	if err != nil {
 		logrus.WithError(err).Errorf("Backend %v monitoring failed, mark as ERR", address)
-		c.SetReplicaMode(address, types.ERR)
+		if err = c.SetReplicaMode(address, types.ERR); err != nil {
+			logrus.WithError(err).Warnf("Failed to set replica %v to ERR", address)
+		}
 	}
 	logrus.Infof("Monitoring stopped %v", address)
 }
@@ -1154,11 +1333,11 @@ func (c *Controller) metricsStart() {
 	}()
 }
 
-func (c *Controller) GetLatestMetics() *ptypes.Metrics {
+func (c *Controller) GetLatestMetics() *enginerpc.Metrics {
 	c.metricsLock.RLock()
 	defer c.metricsLock.RUnlock()
 
-	metrics := &ptypes.Metrics{}
+	metrics := &enginerpc.Metrics{}
 
 	metrics.ReadThroughput = c.latestMetrics.Throughput.Read
 	metrics.WriteThroughput = c.latestMetrics.Throughput.Write
@@ -1177,4 +1356,71 @@ func (c *Controller) GetLatestMetics() *ptypes.Metrics {
 
 func getAverageLatency(totalLatency, iops uint64) uint64 {
 	return totalLatency / iops
+}
+
+// tryFreeze attempts to bind mount an existing mount point to freezePoint, then freeze the filesystem from
+// freezePoint. tryFreeze returns booleans mounted and frozen so the caller can attempt to clean up depending on its
+// progress. tryFreeze does not return an error if there are no eligible mount points to freeze.
+func tryFreeze(devicePath string, freezePoint string, mounter mount.Interface, exec lhexec.ExecuteInterface,
+	log logrus.FieldLogger) (mounted, frozen bool, err error) {
+	// We do not need to switch to the host mount namespace to get mount points here. Usually, longhorn-engine runs in a
+	// container that has / bind mounted to /host with at least HostToContainer (rslave) propagation.
+	// - If it does not, we likely can't do a namespace swap anyway, since we don't have access to /host/proc.
+	// - If it does, we just need to know where in the container we can access the mount points to create a bind mount.
+	sourcePoints, err := mounter.List()
+	if err != nil {
+		log.WithError(err).Warn("Failed to list mount points while deciding whether or not to freeze")
+	}
+
+	for _, sourcePoint := range sourcePoints {
+		if sourcePoint.Device != devicePath {
+			continue // We are iterating through the list of all mounted filesystems.
+		}
+		log.Debugf("Mounting filesystem to %v", freezePoint)
+		if err = attemptBindMountFilesystem(sourcePoint.Path, freezePoint, mounter); err != nil {
+			// There's no particular reason to think we will be successful with a different sourcePoint.
+			err = errors.Wrapf(err, "failed to bind mount filesystem from %v to %v", sourcePoint, freezePoint)
+			return
+		}
+		mounted = true
+
+		// We must verify it is still safe to freeze the filesystem. If the source mount was unmounted by someone else
+		// before we bind mounted, the bind mount could refer to the root filesystem. It does not matter if the source
+		// mount is unmounted AFTER our bind mount, as the bind mount is not affected.
+		var device string
+		device, _, err = mount.GetDeviceNameFromMount(mounter, freezePoint)
+		if err != nil || device != devicePath {
+			// This would likely only happen if an upper layer unmounted the volume. If that is the case, we are
+			// probably being torn down. Trying other sourcePoints will likely lead to a pointless race.
+			err = errors.Wrapf(err, "cannot verify mount point %v refers to volume", freezePoint)
+			return
+		}
+
+		log.Infof("Freezing filesystem mounted at %v", freezePoint)
+		if err = util.FreezeFilesystem(freezePoint, exec); err == nil {
+			frozen = true
+		}
+		break
+	}
+
+	return
+}
+
+// attemptBindMountFilesystem attempts to bind mount sourcePoint to mountPoint. attemptBindMountFilesystem considers it
+// an error if mountPoint already has a filesystem mounted. This likely indicates another freeze is in progress. We do
+// not want to double mount, etc.
+func attemptBindMountFilesystem(sourcePoint, mountPoint string, mounter mount.Interface) error {
+	if err := os.MkdirAll(mountPoint, 0700); err != nil {
+		return err
+	}
+
+	isMountPoint, err := mounter.IsMountPoint(mountPoint)
+	if err != nil {
+		return err
+	}
+	if isMountPoint {
+		return errors.Wrapf(err, "filesystem is already mounted to %v", mountPoint)
+	}
+
+	return mounter.Mount(sourcePoint, mountPoint, "", []string{"bind"})
 }

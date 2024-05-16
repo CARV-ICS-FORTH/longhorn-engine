@@ -76,7 +76,9 @@ func longhornCli() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		pprof.StartCPUProfile(f)
+		if err = pprof.StartCPUProfile(f); err != nil {
+			logrus.Fatal(err)
+		}
 		defer pprof.StopCPUProfile()
 	}
 
@@ -145,6 +147,7 @@ func longhornCli() {
 		cmd.InfoCmd(),
 		cmd.FrontendCmd(),
 		cmd.SystemBackupCmd(),
+		cmd.ProfilerCmd(),
 		VersionCmd(),
 	}
 	a.CommandNotFound = cmdNotFound

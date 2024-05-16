@@ -4,21 +4,23 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/longhorn/types/pkg/generated/enginerpc"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/longhorn/longhorn-engine/pkg/interceptor"
 	"github.com/longhorn/longhorn-engine/pkg/meta"
 	"github.com/longhorn/longhorn-engine/pkg/types"
 	"github.com/longhorn/longhorn-engine/pkg/util"
-	"github.com/longhorn/longhorn-engine/proto/ptypes"
 )
 
 type ControllerServiceContext struct {
 	cc      *grpc.ClientConn
-	service ptypes.ControllerServiceClient
+	service enginerpc.ControllerServiceClient
 }
 
 func (c ControllerServiceContext) Close() error {
@@ -34,7 +36,7 @@ type ControllerClient struct {
 	ControllerServiceContext
 }
 
-func (c *ControllerClient) getControllerServiceClient() ptypes.ControllerServiceClient {
+func (c *ControllerClient) getControllerServiceClient() enginerpc.ControllerServiceClient {
 	return c.service
 }
 
@@ -44,15 +46,15 @@ const (
 
 func NewControllerClient(address, volumeName, instanceName string) (*ControllerClient, error) {
 	getControllerServiceContext := func(serviceUrl string) (ControllerServiceContext, error) {
-		connection, err := grpc.Dial(serviceUrl, grpc.WithInsecure(),
-			ptypes.WithIdentityValidationClientInterceptor(volumeName, instanceName))
+		connection, err := grpc.Dial(serviceUrl, grpc.WithTransportCredentials(insecure.NewCredentials()),
+			interceptor.WithIdentityValidationClientInterceptor(volumeName, instanceName))
 		if err != nil {
 			return ControllerServiceContext{}, errors.Wrapf(err, "cannot connect to ControllerService %v", serviceUrl)
 		}
 
 		return ControllerServiceContext{
 			cc:      connection,
-			service: ptypes.NewControllerServiceClient(connection),
+			service: enginerpc.NewControllerServiceClient(connection),
 		}, nil
 	}
 
@@ -69,7 +71,7 @@ func NewControllerClient(address, volumeName, instanceName string) (*ControllerC
 	}, nil
 }
 
-func GetVolumeInfo(v *ptypes.Volume) *types.VolumeInfo {
+func GetVolumeInfo(v *enginerpc.Volume) *types.VolumeInfo {
 	return &types.VolumeInfo{
 		Name:                      v.Name,
 		Size:                      v.Size,
@@ -81,26 +83,28 @@ func GetVolumeInfo(v *ptypes.Volume) *types.VolumeInfo {
 		LastExpansionError:        v.LastExpansionError,
 		LastExpansionFailedAt:     v.LastExpansionFailedAt,
 		UnmapMarkSnapChainRemoved: v.UnmapMarkSnapChainRemoved,
+		SnapshotMaxCount:          int(v.SnapshotMaxCount),
+		SnapshotMaxSize:           v.SnapshotMaxSize,
 	}
 }
 
-func GetControllerReplicaInfo(cr *ptypes.ControllerReplica) *types.ControllerReplicaInfo {
+func GetControllerReplicaInfo(cr *enginerpc.ControllerReplica) *types.ControllerReplicaInfo {
 	return &types.ControllerReplicaInfo{
 		Address: cr.Address.Address,
 		Mode:    types.Mode(cr.Mode.String()),
 	}
 }
 
-func GetControllerReplica(r *types.ControllerReplicaInfo) *ptypes.ControllerReplica {
-	return &ptypes.ControllerReplica{
-		Address: &ptypes.ReplicaAddress{
+func GetControllerReplica(r *types.ControllerReplicaInfo) *enginerpc.ControllerReplica {
+	return &enginerpc.ControllerReplica{
+		Address: &enginerpc.ReplicaAddress{
 			Address: r.Address,
 		},
-		Mode: ptypes.ReplicaModeToGRPCReplicaMode(r.Mode),
+		Mode: types.ReplicaModeToGRPCReplicaMode(r.Mode),
 	}
 }
 
-func GetSyncFileInfoList(list []*ptypes.SyncFileInfo) []types.SyncFileInfo {
+func GetSyncFileInfoList(list []*enginerpc.SyncFileInfo) []types.SyncFileInfo {
 	res := []types.SyncFileInfo{}
 	for _, info := range list {
 		res = append(res, GetSyncFileInfo(info))
@@ -108,7 +112,7 @@ func GetSyncFileInfoList(list []*ptypes.SyncFileInfo) []types.SyncFileInfo {
 	return res
 }
 
-func GetSyncFileInfo(info *ptypes.SyncFileInfo) types.SyncFileInfo {
+func GetSyncFileInfo(info *enginerpc.SyncFileInfo) types.SyncFileInfo {
 	return types.SyncFileInfo{
 		FromFileName: info.FromFileName,
 		ToFileName:   info.ToFileName,
@@ -121,7 +125,7 @@ func (c *ControllerClient) VolumeGet() (*types.VolumeInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	volume, err := controllerServiceClient.VolumeGet(ctx, &empty.Empty{})
+	volume, err := controllerServiceClient.VolumeGet(ctx, &emptypb.Empty{})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get volume %v", c.serviceURL)
 	}
@@ -134,7 +138,7 @@ func (c *ControllerClient) VolumeStart(size, currentSize int64, replicas ...stri
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	if _, err := controllerServiceClient.VolumeStart(ctx, &ptypes.VolumeStartRequest{
+	if _, err := controllerServiceClient.VolumeStart(ctx, &enginerpc.VolumeStartRequest{
 		ReplicaAddresses: replicas,
 		Size:             size,
 		CurrentSize:      currentSize,
@@ -145,14 +149,15 @@ func (c *ControllerClient) VolumeStart(size, currentSize int64, replicas ...stri
 	return nil
 }
 
-func (c *ControllerClient) VolumeSnapshot(name string, labels map[string]string) (string, error) {
+func (c *ControllerClient) VolumeSnapshot(name string, labels map[string]string, freezeFilesystem bool) (string, error) {
 	controllerServiceClient := c.getControllerServiceClient()
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	reply, err := controllerServiceClient.VolumeSnapshot(ctx, &ptypes.VolumeSnapshotRequest{
-		Name:   name,
-		Labels: labels,
+	reply, err := controllerServiceClient.VolumeSnapshot(ctx, &enginerpc.VolumeSnapshotRequest{
+		Name:             name,
+		Labels:           labels,
+		FreezeFilesystem: freezeFilesystem,
 	})
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to create snapshot %v for volume %v", name, c.serviceURL)
@@ -166,7 +171,7 @@ func (c *ControllerClient) VolumeRevert(snapshot string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	if _, err := controllerServiceClient.VolumeRevert(ctx, &ptypes.VolumeRevertRequest{
+	if _, err := controllerServiceClient.VolumeRevert(ctx, &enginerpc.VolumeRevertRequest{
 		Name: snapshot,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to revert to snapshot %v for volume %v", snapshot, c.serviceURL)
@@ -180,7 +185,7 @@ func (c *ControllerClient) VolumeExpand(size int64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	if _, err := controllerServiceClient.VolumeExpand(ctx, &ptypes.VolumeExpandRequest{
+	if _, err := controllerServiceClient.VolumeExpand(ctx, &enginerpc.VolumeExpandRequest{
 		Size: size,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to expand to size %v for volume %v", size, c.serviceURL)
@@ -194,7 +199,7 @@ func (c *ControllerClient) VolumeFrontendStart(frontend string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	if _, err := controllerServiceClient.VolumeFrontendStart(ctx, &ptypes.VolumeFrontendStartRequest{
+	if _, err := controllerServiceClient.VolumeFrontendStart(ctx, &enginerpc.VolumeFrontendStartRequest{
 		Frontend: frontend,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to start frontend %v for volume %v", frontend, c.serviceURL)
@@ -208,7 +213,7 @@ func (c *ControllerClient) VolumeFrontendShutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	if _, err := controllerServiceClient.VolumeFrontendShutdown(ctx, &empty.Empty{}); err != nil {
+	if _, err := controllerServiceClient.VolumeFrontendShutdown(ctx, &emptypb.Empty{}); err != nil {
 		return errors.Wrapf(err, "failed to shutdown frontend for volume %v", c.serviceURL)
 	}
 
@@ -220,10 +225,38 @@ func (c *ControllerClient) VolumeUnmapMarkSnapChainRemovedSet(enabled bool) erro
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	if _, err := controllerServiceClient.VolumeUnmapMarkSnapChainRemovedSet(ctx, &ptypes.VolumeUnmapMarkSnapChainRemovedSetRequest{
+	if _, err := controllerServiceClient.VolumeUnmapMarkSnapChainRemovedSet(ctx, &enginerpc.VolumeUnmapMarkSnapChainRemovedSetRequest{
 		Enabled: enabled,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to set UnmapMarkSnapChainRemoved to %v for volume %v", enabled, c.serviceURL)
+	}
+
+	return nil
+}
+
+func (c *ControllerClient) VolumeSnapshotMaxCountSet(count int) error {
+	controllerServiceClient := c.getControllerServiceClient()
+	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
+	defer cancel()
+
+	if _, err := controllerServiceClient.VolumeSnapshotMaxCountSet(ctx, &enginerpc.VolumeSnapshotMaxCountSetRequest{
+		Count: int32(count),
+	}); err != nil {
+		return errors.Wrapf(err, "failed to set SnapshotMaxCount to %d for volume %s", count, c.serviceURL)
+	}
+
+	return nil
+}
+
+func (c *ControllerClient) VolumeSnapshotMaxSizeSet(size int64) error {
+	controllerServiceClient := c.getControllerServiceClient()
+	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
+	defer cancel()
+
+	if _, err := controllerServiceClient.VolumeSnapshotMaxSizeSet(ctx, &enginerpc.VolumeSnapshotMaxSizeSetRequest{
+		Size: size,
+	}); err != nil {
+		return errors.Wrapf(err, "failed to set SnapshotMaxSize to %d for volume %s", size, c.serviceURL)
 	}
 
 	return nil
@@ -234,7 +267,7 @@ func (c *ControllerClient) ReplicaList() ([]*types.ControllerReplicaInfo, error)
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	reply, err := controllerServiceClient.ReplicaList(ctx, &empty.Empty{})
+	reply, err := controllerServiceClient.ReplicaList(ctx, &emptypb.Empty{})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to list replicas for volume %v", c.serviceURL)
 	}
@@ -252,7 +285,7 @@ func (c *ControllerClient) ReplicaGet(address string) (*types.ControllerReplicaI
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	cr, err := controllerServiceClient.ReplicaGet(ctx, &ptypes.ReplicaAddress{
+	cr, err := controllerServiceClient.ReplicaGet(ctx, &enginerpc.ReplicaAddress{
 		Address: address,
 	})
 	if err != nil {
@@ -267,10 +300,10 @@ func (c *ControllerClient) ReplicaCreate(address string, snapshotRequired bool, 
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	cr, err := controllerServiceClient.ControllerReplicaCreate(ctx, &ptypes.ControllerReplicaCreateRequest{
+	cr, err := controllerServiceClient.ControllerReplicaCreate(ctx, &enginerpc.ControllerReplicaCreateRequest{
 		Address:          address,
 		SnapshotRequired: snapshotRequired,
-		Mode:             ptypes.ReplicaModeToGRPCReplicaMode(mode),
+		Mode:             types.ReplicaModeToGRPCReplicaMode(mode),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create replica %v for volume %v", address, c.serviceURL)
@@ -284,7 +317,7 @@ func (c *ControllerClient) ReplicaDelete(address string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	if _, err := controllerServiceClient.ReplicaDelete(ctx, &ptypes.ReplicaAddress{
+	if _, err := controllerServiceClient.ReplicaDelete(ctx, &enginerpc.ReplicaAddress{
 		Address: address,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to delete replica %v for volume %v", address, c.serviceURL)
@@ -314,7 +347,7 @@ func (c *ControllerClient) ReplicaPrepareRebuild(address, instanceName string) (
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	reply, err := controllerServiceClient.ReplicaPrepareRebuild(ctx, &ptypes.ReplicaAddress{
+	reply, err := controllerServiceClient.ReplicaPrepareRebuild(ctx, &enginerpc.ReplicaAddress{
 		Address:      address,
 		InstanceName: instanceName,
 	})
@@ -330,7 +363,7 @@ func (c *ControllerClient) ReplicaVerifyRebuild(address, instanceName string) er
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	if _, err := controllerServiceClient.ReplicaVerifyRebuild(ctx, &ptypes.ReplicaAddress{
+	if _, err := controllerServiceClient.ReplicaVerifyRebuild(ctx, &enginerpc.ReplicaAddress{
 		Address:      address,
 		InstanceName: instanceName,
 	}); err != nil {
@@ -345,7 +378,7 @@ func (c *ControllerClient) JournalList(limit int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	if _, err := controllerServiceClient.JournalList(ctx, &ptypes.JournalListRequest{
+	if _, err := controllerServiceClient.JournalList(ctx, &enginerpc.JournalListRequest{
 		Limit: int64(limit),
 	}); err != nil {
 		return errors.Wrapf(err, "failed to list journal for volume %v", c.serviceURL)
@@ -359,7 +392,7 @@ func (c *ControllerClient) VersionDetailGet() (*meta.VersionOutput, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	reply, err := controllerServiceClient.VersionDetailGet(ctx, &empty.Empty{})
+	reply, err := controllerServiceClient.VersionDetailGet(ctx, &emptypb.Empty{})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get version detail")
 	}
@@ -379,7 +412,7 @@ func (c *ControllerClient) VersionDetailGet() (*meta.VersionOutput, error) {
 }
 
 func (c *ControllerClient) Check() error {
-	conn, err := grpc.Dial(c.serviceURL, grpc.WithInsecure())
+	conn, err := grpc.Dial(c.serviceURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ControllerService %v", c.serviceURL)
 	}
@@ -409,7 +442,7 @@ func (c *ControllerClient) MetricsGet() (*types.Metrics, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()
 
-	reply, err := controllerServiceClient.MetricsGet(ctx, &empty.Empty{})
+	reply, err := controllerServiceClient.MetricsGet(ctx, &emptypb.Empty{})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get metrics for volume %v", c.serviceURL)
 	}

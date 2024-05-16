@@ -1,4 +1,4 @@
-FROM registry.suse.com/bci/bci-base:15.5 AS builder
+FROM registry.suse.com/bci/bci-base:15.6 AS builder
 
 ARG ARCH=amd64
 
@@ -46,10 +46,10 @@ RUN git clone --depth 1 --branch liburing-2.5 https://github.com/axboe/liburing.
     make install
 
 # Install grpc_health_probe
-RUN wget https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.21/grpc_health_probe-linux-${ARCH} -O /usr/local/bin/grpc_health_probe && \
+RUN wget https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.24/grpc_health_probe-linux-${ARCH} -O /usr/local/bin/grpc_health_probe && \
     chmod +x /usr/local/bin/grpc_health_probe
 
-FROM registry.suse.com/bci/bci-base:15.5 AS release
+FROM registry.suse.com/bci/bci-base:15.6 AS release
 
 ARG ARCH=amd64
 
@@ -71,7 +71,8 @@ COPY --from=builder \
     /usr/sbin/tgtimg \
     /usr/local/bin/
 
-COPY bin/longhorn bin/longhorn-instance-manager /usr/local/bin/
+COPY package/bin/longhorn /usr/local/bin/
+COPY package/bin/longhorn-instance-manager /usr/local/bin/
 
 COPY package/launch-simple-longhorn package/engine-manager package/launch-simple-file /usr/local/bin/
 

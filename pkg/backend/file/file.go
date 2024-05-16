@@ -100,8 +100,8 @@ func (f *Wrapper) SectorSize() (int64, error) {
 	return 4096, nil
 }
 
-func (f *Wrapper) RemainSnapshots() (int, error) {
-	return 1, nil
+func (f *Wrapper) GetSnapshotCountAndSizeUsage() (int, int64, error) {
+	return 1, 0, nil
 }
 
 func (f *Wrapper) GetRevisionCounter() (int64, error) {
@@ -124,7 +124,15 @@ func (f *Wrapper) ResetRebuild() error {
 	return nil
 }
 
-func (ff *Factory) Create(volumeName, address string, dataServerProtocol types.DataServerProtocol, engineToReplicaTimeout time.Duration, replicaStreams int) (types.Backend, error) {
+func (f *Wrapper) SetSnapshotMaxCount(count int) error {
+	return nil
+}
+
+func (f *Wrapper) SetSnapshotMaxSize(size int64) error {
+	return nil
+}
+
+func (ff *Factory) Create(volumeName, address string, dataServerProtocol types.DataServerProtocol, engineToReplicaTimeout time.Duration) (types.Backend, error) {
 	logrus.Infof("Creating file: %s", address)
 	file, err := os.OpenFile(address, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {

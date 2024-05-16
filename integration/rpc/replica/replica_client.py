@@ -1,10 +1,11 @@
 import grpc
 
-import replica_pb2
-import replica_pb2_grpc
+from ptypes import replica_pb2
+from ptypes import replica_pb2_grpc
 from google.protobuf import empty_pb2
 
 from common.interceptor import IdentityValidationInterceptor
+
 
 class ReplicaClient(object):
     def __init__(self, address, volume_name=None, instance_name=None):

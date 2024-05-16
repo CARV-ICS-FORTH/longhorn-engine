@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"strings"
 	"syscall"
@@ -28,11 +25,6 @@ func ControllerCmd() cli.Command {
 	return cli.Command{
 		Name: "controller",
 		Flags: []cli.Flag{
-			cli.BoolFlag{
-				Name:     "profiling",
-				Required: false,
-				Usage:    "Enable pprof server",
-			},
 			cli.StringFlag{
 				Name:  "listen",
 				Value: "localhost:9501",
@@ -75,12 +67,6 @@ func ControllerCmd() cli.Command {
 				Value:  int64(controller.DefaultEngineReplicaTimeout.Seconds()),
 				Usage:  "In seconds. Timeout between engine and replica(s)",
 			},
-			cli.IntFlag{
-				Name:     "replica-streams",
-				Required: false,
-				Value:    1,
-				Usage:    "Number of concurrent streams to each replica",
-			},
 			cli.StringFlag{
 				Name:  "data-server-protocol",
 				Value: "tcp",
@@ -102,6 +88,15 @@ func ControllerCmd() cli.Command {
 				Required: false,
 				Value:    1,
 				Usage:    "Number of frontend queues , only available in ublk frontend",
+			},
+			cli.IntFlag{
+				Name:  "snapshot-max-count",
+				Value: 250,
+				Usage: "Maximum number of snapshots to keep",
+			},
+			cli.StringFlag{
+				Name:  "snapshot-max-size",
+				Usage: "Maximum total snapshot size in bytes or human readable 42kb, 42mb, 42gb",
 			},
 		},
 		Action: func(c *cli.Context) {
@@ -136,17 +131,6 @@ func startController(c *cli.Context) error {
 	engineInstanceName := c.GlobalString("engine-instance-name")
 	frontendQueues := c.Int("frontend-queues")
 
-	proffiling := c.Bool("profiling")
-	if proffiling {
-		fmt.Println("Starting pprof server")
-		go func() {
-			err := http.ListenAndServe("localhost:6060", nil)
-			if err != nil {
-				fmt.Println("Error starting pprof server:", err)
-			}
-		}()
-
-	}
 
 	size := c.String("size")
 	if size == "" {
@@ -171,9 +155,14 @@ func startController(c *cli.Context) error {
 	engineReplicaTimeout = controller.DetermineEngineReplicaTimeout(engineReplicaTimeout)
 	iscsiTargetRequestTimeout := controller.DetermineIscsiTargetRequestTimeout(engineReplicaTimeout)
 
-	replicaStreams := c.Int("replica-streams")
-	if replicaStreams < 1 {
-		return errors.New("at least one stream per replica is required")
+	snapshotMaxCount := c.Int("snapshot-max-count")
+	snapshotMaxSize := int64(0)
+	snapshotMaxSizeString := c.String("snapshot-max-size")
+	if snapshotMaxSizeString != "" {
+		snapshotMaxSize, err = units.RAMInBytes(snapshotMaxSizeString)
+		if err != nil {
+			return err
+		}
 	}
 
 	factories := map[string]types.BackendFactory{}
@@ -197,11 +186,19 @@ func startController(c *cli.Context) error {
 		frontend = f
 	}
 
-	logrus.Infof("Creating volume %v controller with iSCSI target request timeout %v, engine to replica(s) timeout %v, streams per replica %v",
-		volumeName, iscsiTargetRequestTimeout, engineReplicaTimeout, replicaStreams)
+	// If the engine failed during a snapshot, we may have left a frozen filesystem. We attempt to unfreeze here because
+	// we may not reach frontend startup (e.g. if there are no available backends). An unfreeze command may get stuck
+	// here for reasons unrelated to a frozen filesystem (e.g. there are outstanding I/Os to a crashed volume). Log a
+	// failure (e.g. a timeout), but continue.
+	if err := util.UnfreezeFilesystemForDevice(util.GetDevicePathFromVolumeName(volumeName)); err != nil {
+		logrus.WithError(err).Warn("Failed to unfreeze filesystem")
+	}
+
+	logrus.Infof("Creating volume %v controller with iSCSI target request timeout %v and engine to replica(s) timeout %v",
+		volumeName, iscsiTargetRequestTimeout, engineReplicaTimeout)
 	control := controller.NewController(volumeName, dynamic.New(factories), frontend, isUpgrade, disableRevCounter, salvageRequested,
-		unmapMarkSnapChainRemoved, iscsiTargetRequestTimeout, engineReplicaTimeout, replicaStreams, types.DataServerProtocol(dataServerProtocol),
-		fileSyncHTTPClientTimeout, frontendQueues)
+		unmapMarkSnapChainRemoved, iscsiTargetRequestTimeout, engineReplicaTimeout, types.DataServerProtocol(dataServerProtocol),
+		fileSyncHTTPClientTimeout, snapshotMaxCount, snapshotMaxSize,frontendQueues)
 
 	// need to wait for Shutdown() completion
 	control.ShutdownWG.Add(1)
@@ -229,7 +226,9 @@ func startController(c *cli.Context) error {
 	control.GRPCAddress = util.GetGRPCAddress(listen)
 	control.GRPCServer = controllerrpc.GetControllerGRPCServer(volumeName, engineInstanceName, control)
 
-	control.StartGRPCServer()
+	if err = control.StartGRPCServer(); err != nil {
+		logrus.WithError(err).Warn("Failed to start GRPC server")
+	}
 	return control.WaitForShutdown()
 }
 

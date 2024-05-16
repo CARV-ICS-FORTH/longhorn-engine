@@ -12,6 +12,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 
+	lhutils "github.com/longhorn/go-common-libs/utils"
+
 	"github.com/longhorn/longhorn-engine/pkg/controller/client"
 	"github.com/longhorn/longhorn-engine/pkg/sync"
 	"github.com/longhorn/longhorn-engine/pkg/types"
@@ -50,7 +52,11 @@ func SnapshotCreateCmd() cli.Command {
 		Flags: []cli.Flag{
 			cli.StringSliceFlag{
 				Name:  "label",
-				Usage: "specify labels, in the format of `--label key1=value1 --label key2=value2`",
+				Usage: "Specify labels, in the format of `--label key1=value1 --label key2=value2`",
+			},
+			cli.BoolFlag{
+				Name:  "freeze-fs",
+				Usage: "Freeze the filesystem on the root partition before taking the snapshot",
 			},
 		},
 		Action: func(c *cli.Context) {
@@ -243,13 +249,15 @@ func createSnapshot(c *cli.Context) error {
 		}
 	}
 
+	freezeFilesystem := c.Bool("freeze-fs")
+
 	controllerClient, err := getControllerClient(c)
 	if err != nil {
 		return err
 	}
 	defer controllerClient.Close()
 
-	id, err := controllerClient.VolumeSnapshot(name, labelMap)
+	id, err := controllerClient.VolumeSnapshot(name, labelMap, freezeFilesystem)
 	if err != nil {
 		return err
 	}
@@ -384,7 +392,7 @@ func lsSnapshot(c *cli.Context) error {
 		}
 
 		snapshots = util.Filter(snapshots, func(i string) bool {
-			return util.Contains(chain, i)
+			return lhutils.Contains(chain, i)
 		})
 	}
 
