@@ -1056,6 +1056,7 @@ func (c *Controller) WriteAt(b []byte, off int64) (int, error) {
 	}
 	c.recordMetrics(false, l, time.Since(startTime))
 	return n, err
+	//return len(b), nil
 }
 
 func (c *Controller) writeInWOMode(b []byte, off int64) (int, error) {
@@ -1112,6 +1113,7 @@ func (c *Controller) ReadAt(b []byte, off int64) (int, error) {
 	}
 	c.recordMetrics(true, l, time.Since(startTime))
 	return n, err
+	//return len(b), nil
 }
 
 func (c *Controller) UnmapAt(length uint32, off int64) (int, error) {

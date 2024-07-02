@@ -22,6 +22,7 @@ const (
 
 	SocketDirectory = "/var/run"
 	DevPath         = "/dev/longhorn/"
+	qdepth          = 32
 )
 
 func New(frontendQueues int) *Ublk {
@@ -56,7 +57,7 @@ func (u *Ublk) Init(name string, size, sectorSize int64) error {
 func (u *Ublk) StartUblk() error {
 
 	command := "add"
-	args := []string{"-t", "longhorn", "-f", u.socketPath, "-s", strconv.FormatInt(u.Size, 10), "-d", "32", "-q", strconv.Itoa(u.Queues)}
+	args := []string{"-t", "longhorn", "-f", u.socketPath, "-s", strconv.FormatInt(u.Size, 10), "-d", strconv.Itoa(qdepth), "-q", strconv.Itoa(u.Queues)}
 
 	cmd := exec.Command("ublk", append([]string{command}, args...)...)
 

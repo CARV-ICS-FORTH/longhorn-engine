@@ -423,7 +423,8 @@ func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.D
 		return nil, err
 	}
 
-	go r.monitorPing(dataConnClient)
+	//Ping the replica to make sure it is healthy
+	//go r.monitorPing(dataConnClient)
 
 	return r, nil
 }
