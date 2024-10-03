@@ -2,15 +2,10 @@ package dataconn
 
 import (
 	"errors"
+	"github.com/longhorn/longhorn-engine/pkg/types"
+	"github.com/sirupsen/logrus"
 	"io"
 	"net"
-	"time"
-
-	"github.com/sirupsen/logrus"
-
-	journal "github.com/longhorn/sparse-tools/stats"
-
-	"github.com/longhorn/longhorn-engine/pkg/types"
 )
 
 const (
@@ -19,16 +14,16 @@ const (
 
 // Client replica client
 type Client struct {
-	end       chan struct{}
-	requests  chan *Message
-	send      chan *Message
-	responses chan *Message
-	seq       uint32
-	messages  [queueLength]*Message
-	SeqChan   chan uint32
-	wires     []*Wire
-	peerAddr  string
-	opTimeout time.Duration
+	end            chan struct{}
+	requests       chan *Message
+	send           chan *Message
+	responses      chan *Message
+	seq            uint32
+	messages       [queueLength]*Message
+	SeqChan        chan uint32
+	wires          []*Wire
+	peerAddr       string
+	sharedTimeouts types.SharedTimeouts
 }
 
 // NewClient replica client
@@ -39,14 +34,14 @@ func NewClient(conns []net.Conn, sharedTimeouts types.SharedTimeouts) *Client {
 	}
 
 	c := &Client{
-		wires:     wires,
-		peerAddr:  conns[0].RemoteAddr().String(),
-		end:       make(chan struct{}, 1024),
-		requests:  make(chan *Message, 1024),
-		send:      make(chan *Message, 1024),
-		responses: make(chan *Message, 1024),
-		messages:  [queueLength]*Message{},
-		SeqChan:   make(chan uint32, queueLength),
+		wires:          wires,
+		peerAddr:       conns[0].RemoteAddr().String(),
+		end:            make(chan struct{}, 1024),
+		requests:       make(chan *Message, 1024),
+		send:           make(chan *Message, 1024),
+		responses:      make(chan *Message, 1024),
+		messages:       [queueLength]*Message{},
+		SeqChan:        make(chan uint32, queueLength),
 		sharedTimeouts: sharedTimeouts,
 	}
 	for i := uint32(0); i < queueLength; i++ {

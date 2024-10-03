@@ -88,6 +88,12 @@ func ControllerCmd() cli.Command {
 				Value: 250,
 				Usage: "Maximum number of snapshots to keep",
 			},
+			cli.IntFlag{
+				Name:     "frontend-queues",
+				Required: false,
+				Value:    1,
+				Usage:    "Number of frontend queues , only available in ublk frontend",
+			},
 			cli.StringFlag{
 				Name:  "snapshot-max-size",
 				Usage: "Maximum total snapshot size in bytes or human readable 42kb, 42mb, 42gb",
@@ -124,7 +130,6 @@ func startController(c *cli.Context) error {
 	fileSyncHTTPClientTimeout := c.Int("file-sync-http-client-timeout")
 	engineInstanceName := c.GlobalString("engine-instance-name")
 	frontendQueues := c.Int("frontend-queues")
-
 
 	size := c.String("size")
 	if size == "" {
@@ -177,7 +182,7 @@ func startController(c *cli.Context) error {
 
 	var frontend types.Frontend
 	if frontendName != "" {
-		f, err := controller.NewFrontend(frontendName, iscsiTargetRequestTimeout)
+		f, err := controller.NewFrontend(frontendName, iscsiTargetRequestTimeout, frontendQueues)
 		if err != nil {
 			return errors.Wrapf(err, "failed to find frontend: %s", frontendName)
 		}
@@ -197,7 +202,7 @@ func startController(c *cli.Context) error {
 	control := controller.NewController(volumeName, dynamic.New(factories), frontend, isUpgrade, disableRevCounter,
 		salvageRequested, unmapMarkSnapChainRemoved, iscsiTargetRequestTimeout, engineReplicaTimeoutShort,
 		engineReplicaTimeoutLong, types.DataServerProtocol(dataServerProtocol), fileSyncHTTPClientTimeout,
-		snapshotMaxCount, snapshotMaxSize,frontendQueues)
+		snapshotMaxCount, snapshotMaxSize, frontendQueues)
 
 	// need to wait for Shutdown() completion
 	control.ShutdownWG.Add(1)
