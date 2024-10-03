@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/longhorn/go-common-libs/generated/profilerpb"
 	"github.com/longhorn/go-common-libs/profiler"
 	"github.com/longhorn/types/pkg/generated/enginerpc"
+	"github.com/longhorn/types/pkg/generated/profilerrpc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -35,7 +35,7 @@ func NewReplicaServer(volumeName, instanceName string, s *replica.Server) *grpc.
 	enginerpc.RegisterReplicaServiceServer(server, rs)
 	healthpb.RegisterHealthServer(server, NewReplicaHealthCheckServer(rs))
 	reflection.Register(server)
-	profilerpb.RegisterProfilerServer(server, profiler.NewServer(volumeName))
+	profilerrpc.RegisterProfilerServer(server, profiler.NewServer(volumeName))
 	return server
 }
 
@@ -188,7 +188,7 @@ func (rs *ReplicaServer) ReplicaExpand(ctx context.Context, req *enginerpc.Repli
 			errWithCode = types.NewError(types.ErrorCodeFunctionFailedWithoutRollback,
 				err.Error(), "")
 		}
-		return nil, status.Errorf(codes.Internal, errWithCode.ToJSONString())
+		return nil, status.Errorf(codes.Internal, "%s", errWithCode.ToJSONString())
 	}
 
 	return &enginerpc.ReplicaExpandResponse{Replica: rs.getReplica()}, nil

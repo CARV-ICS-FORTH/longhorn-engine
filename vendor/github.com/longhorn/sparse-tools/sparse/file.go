@@ -77,7 +77,9 @@ func (file *BufferedFileIoProcessor) Size() (int64, error) {
 }
 
 func (file *BufferedFileIoProcessor) Close() error {
-	file.File.Sync()
+	if err := file.File.Sync(); err != nil {
+		return err
+	}
 	return file.File.Close()
 }
 
@@ -345,7 +347,7 @@ func GetFiemapRegionExts(file FileIoProcessor, interval Interval, extCount int) 
 	_, exts, errno := file.GetFieMap().FiemapRegion(uint32(extCount), uint64(interval.Begin), uint64(interval.End-interval.Begin))
 	if errno != 0 {
 		log.Error("Failed to call fiemap.Fiemap(extCount)")
-		return exts, fmt.Errorf(errno.Error())
+		return exts, fmt.Errorf("%v", errno)
 	}
 
 	log.Tracef("Retrieved %v/%v extents from file %v, interval %+v, elapsed %.2fs",

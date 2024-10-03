@@ -22,8 +22,11 @@ import (
 )
 
 const (
-	PingInterval        = 2 * time.Second
-	NumberOfConnections = 6
+	// PingInterval is the time between one successful ping and the next attempt. It is NOT a timeout. The engine will
+	// NOT mark a replica as ERR if it fails to receive a response within PingInterval. See monitorPing for details.
+	PingInterval = 2 * time.Second
+
+	NumberOfConnections = 2
 )
 
 func New() types.BackendFactory {
@@ -48,7 +51,13 @@ type Remote struct {
 
 func (r *Remote) Close() error {
 	logrus.Infof("Closing: %s", r.name)
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+
+	// Close the dataconn client to avoid orphaning goroutines.
+	if dataconnClient, ok := r.ReaderWriterUnmapperAt.(*dataconn.Client); ok {
+		dataconnClient.Close()
+	}
+
+	conn, err := grpc.NewClient(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
@@ -68,7 +77,7 @@ func (r *Remote) Close() error {
 
 func (r *Remote) open() error {
 	logrus.Infof("Opening remote: %s", r.name)
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+	conn, err := grpc.NewClient(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
@@ -89,7 +98,7 @@ func (r *Remote) open() error {
 func (r *Remote) Snapshot(name string, userCreated bool, created string, labels map[string]string) error {
 	logrus.Infof("Starting to snapshot: %s %s UserCreated %v Created at %v, Labels %v",
 		r.name, name, userCreated, created, labels)
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+	conn, err := grpc.NewClient(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
@@ -119,7 +128,7 @@ func (r *Remote) Expand(size int64) (err error) {
 		err = types.WrapError(err, "failed to expand replica %v from remote", r.replicaServiceURL)
 	}()
 
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+	conn, err := grpc.NewClient(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
@@ -142,7 +151,7 @@ func (r *Remote) Expand(size int64) (err error) {
 func (r *Remote) SetRevisionCounter(counter int64) error {
 	logrus.Infof("Set revision counter of %s to : %v", r.name, counter)
 
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+	conn, err := grpc.NewClient(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
@@ -258,7 +267,7 @@ func (r *Remote) GetUnmapMarkSnapChainRemoved() (bool, error) {
 func (r *Remote) SetUnmapMarkSnapChainRemoved(enabled bool) error {
 	logrus.Infof("Setting UnmapMarkSnapChainRemoved of %s to : %v", r.name, enabled)
 
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+	conn, err := grpc.NewClient(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "failed connecting to ReplicaService %v", r.replicaServiceURL)
@@ -290,7 +299,7 @@ func (r *Remote) ResetRebuild() error {
 
 	logrus.Warnf("Resetting %v rebuild", r.name)
 
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+	conn, err := grpc.NewClient(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return errors.Wrapf(err, "failed connecting to ReplicaService %v", r.replicaServiceURL)
@@ -315,7 +324,7 @@ func (r *Remote) ResetRebuild() error {
 func (r *Remote) SetSnapshotMaxCount(count int) error {
 	logrus.Infof("Setting SnapshotMaxCount of %s to : %d", r.name, count)
 
-	conn, err := grpc.Dial(r.replicaServiceURL,
+	conn, err := grpc.NewClient(r.replicaServiceURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
@@ -339,7 +348,7 @@ func (r *Remote) SetSnapshotMaxCount(count int) error {
 func (r *Remote) SetSnapshotMaxSize(size int64) error {
 	logrus.Infof("Setting SnapshotMaxSize of %s to : %d", r.name, size)
 
-	conn, err := grpc.Dial(r.replicaServiceURL,
+	conn, err := grpc.NewClient(r.replicaServiceURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
@@ -361,7 +370,7 @@ func (r *Remote) SetSnapshotMaxSize(size int64) error {
 }
 
 func (r *Remote) info() (*types.ReplicaInfo, error) {
-	conn, err := grpc.Dial(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
+	conn, err := grpc.NewClient(r.replicaServiceURL, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		interceptor.WithIdentityValidationClientInterceptor(r.volumeName, ""))
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot connect to ReplicaService %v", r.replicaServiceURL)
@@ -380,7 +389,8 @@ func (r *Remote) info() (*types.ReplicaInfo, error) {
 	return replicaClient.GetReplicaInfo(resp.Replica), nil
 }
 
-func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.DataServerProtocol, engineToReplicaTimeout time.Duration) (types.Backend, error) {
+func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.DataServerProtocol,
+	sharedTimeouts types.SharedTimeouts) (types.Backend, error) {
 	logrus.Infof("Connecting to remote: %s (%v)", address, dataServerProtocol)
 
 	controlAddress, dataAddress, _, _, err := util.GetAddresses(volumeName, address, dataServerProtocol)
@@ -416,15 +426,14 @@ func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.D
 		conns = append(conns, conn)
 	}
 
-	dataConnClient := dataconn.NewClient(conns, engineToReplicaTimeout)
+	dataConnClient := dataconn.NewClient(conns, sharedTimeouts)
 	r.ReaderWriterUnmapperAt = dataConnClient
 
 	if err := r.open(); err != nil {
 		return nil, err
 	}
 
-	//Ping the replica to make sure it is healthy
-	//go r.monitorPing(dataConnClient)
+	go r.monitorPing(dataConnClient)
 
 	return r, nil
 }
@@ -444,6 +453,15 @@ func connect(dataServerProtocol types.DataServerProtocol, address string) (net.C
 	}
 }
 
+// monitorPing sends a TypePing message and waits for a response. It sends additional TypePing messages PingInterval
+// after each success. As of https://github.com/longhorn/longhorn-engine/pull/652, the engine will NOT mark a replica as
+// ERR if it fails to receive a response within PingInterval.
+//   - If there is I/O in flight, then we rely on engine-replica-timeout to prompt marking the replica ERR in the
+//     dataconn client loop.
+//   - Even if there is no I/O in flight, if there is a problem with the dataconn connection, then we rely on TCP
+//     keepalives (15s + 15s * 9 = 150s) or a closing of the connection from the replica side to prompt marking the
+//     replica ERR. In the keepalive case, another Longhorn component (e.g. the engine monitor in longhorn-manager) may
+//     detect the problem first.
 func (r *Remote) monitorPing(client *dataconn.Client) {
 	ticker := time.NewTicker(PingInterval)
 	defer ticker.Stop()

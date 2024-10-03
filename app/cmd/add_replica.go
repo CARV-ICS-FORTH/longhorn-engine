@@ -35,11 +35,22 @@ func AddReplicaCmd() cli.Command {
 				Required: false,
 				Usage:    "Enable fast file synchronization using change time and checksum",
 			},
+			cli.BoolFlag{
+				Name:     "sync-local",
+				Required: false,
+				Usage:    "sync local replica",
+			},
 			cli.IntFlag{
 				Name:     "file-sync-http-client-timeout",
 				Required: false,
 				Value:    5,
 				Usage:    "HTTP client timeout for replica file sync server",
+			},
+			cli.IntFlag{
+				Name:     "grpc-timeout-seconds",
+				Required: false,
+				Value:    0,
+				Usage:    "Specify the gRPC timeout for replica rebuilding. If specify a value <= 0, we will use 24h timeout",
 			},
 			cli.StringFlag{
 				Name:     "replica-instance-name",
@@ -92,11 +103,12 @@ func addReplica(c *cli.Context) error {
 
 	fastSync := c.Bool("fast-sync")
 	fileSyncHTTPClientTimeout := c.Int("file-sync-http-client-timeout")
+	grpcTimeoutSeconds := c.Int64("grpc-timeout-seconds")
 
 	if c.Bool("restore") {
 		return task.AddRestoreReplica(volumeSize, volumeCurrentSize, replica, replicaInstanceName)
 	}
-	return task.AddReplica(volumeSize, volumeCurrentSize, replica, replicaInstanceName, fileSyncHTTPClientTimeout, fastSync)
+	return task.AddReplica(volumeSize, volumeCurrentSize, replica, replicaInstanceName, fileSyncHTTPClientTimeout, fastSync, nil, grpcTimeoutSeconds)
 }
 
 func StartWithReplicasCmd() cli.Command {

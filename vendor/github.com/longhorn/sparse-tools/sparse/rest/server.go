@@ -50,8 +50,8 @@ func (it *IdleTimer) ConnState(conn net.Conn, state http.ConnState) {
 	}
 }
 
-func (t *IdleTimer) Done() <-chan time.Time {
-	return t.timer.C
+func (it *IdleTimer) Done() <-chan time.Time {
+	return it.timer.C
 }
 
 type DataSyncServer interface {
@@ -117,6 +117,6 @@ func Server(ctx context.Context, port string, filePath string, syncFileOps SyncF
 }
 
 // TestServer daemon serves only one connection for each test then exits
-func TestServer(ctx context.Context, port string, filePath string, timeout int) {
-	Server(ctx, port, filePath, &SyncFileStub{})
+func TestServer(ctx context.Context, port string, filePath string, timeout int) error {
+	return Server(ctx, port, filePath, &SyncFileStub{})
 }

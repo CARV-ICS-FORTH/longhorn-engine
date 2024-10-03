@@ -84,12 +84,6 @@ func ControllerCmd() cli.Command {
 				Usage:    "HTTP client timeout for replica file sync server",
 			},
 			cli.IntFlag{
-				Name:     "frontend-queues",
-				Required: false,
-				Value:    1,
-				Usage:    "Number of frontend queues , only available in ublk frontend",
-			},
-			cli.IntFlag{
 				Name:  "snapshot-max-count",
 				Value: 250,
 				Usage: "Maximum number of snapshots to keep",
@@ -151,9 +145,13 @@ func startController(c *cli.Context) error {
 	}
 
 	timeout := c.Int64("engine-replica-timeout")
-	engineReplicaTimeout := time.Duration(timeout) * time.Second
-	engineReplicaTimeout = controller.DetermineEngineReplicaTimeout(engineReplicaTimeout)
-	iscsiTargetRequestTimeout := controller.DetermineIscsiTargetRequestTimeout(engineReplicaTimeout)
+	engineReplicaTimeoutShort := time.Duration(timeout) * time.Second
+	engineReplicaTimeoutShort = controller.DetermineEngineReplicaTimeout(engineReplicaTimeoutShort)
+	// In https://github.com/longhorn/longhorn/issues/8711 we decided to allow the last replica twice as long as the
+	// others before a timeout. We can optionally adjust this strategy (e.g. to a fixed sixty seconds or some
+	// configurable value) in the future.
+	engineReplicaTimeoutLong := 2 * engineReplicaTimeoutShort
+	iscsiTargetRequestTimeout := controller.DetermineIscsiTargetRequestTimeout(engineReplicaTimeoutLong)
 
 	snapshotMaxCount := c.Int("snapshot-max-count")
 	snapshotMaxSize := int64(0)
@@ -179,7 +177,7 @@ func startController(c *cli.Context) error {
 
 	var frontend types.Frontend
 	if frontendName != "" {
-		f, err := controller.NewFrontend(frontendName, iscsiTargetRequestTimeout, frontendQueues)
+		f, err := controller.NewFrontend(frontendName, iscsiTargetRequestTimeout)
 		if err != nil {
 			return errors.Wrapf(err, "failed to find frontend: %s", frontendName)
 		}
@@ -195,10 +193,11 @@ func startController(c *cli.Context) error {
 	}
 
 	logrus.Infof("Creating volume %v controller with iSCSI target request timeout %v and engine to replica(s) timeout %v",
-		volumeName, iscsiTargetRequestTimeout, engineReplicaTimeout)
-	control := controller.NewController(volumeName, dynamic.New(factories), frontend, isUpgrade, disableRevCounter, salvageRequested,
-		unmapMarkSnapChainRemoved, iscsiTargetRequestTimeout, engineReplicaTimeout, types.DataServerProtocol(dataServerProtocol),
-		fileSyncHTTPClientTimeout, snapshotMaxCount, snapshotMaxSize,frontendQueues)
+		volumeName, iscsiTargetRequestTimeout, engineReplicaTimeoutShort)
+	control := controller.NewController(volumeName, dynamic.New(factories), frontend, isUpgrade, disableRevCounter,
+		salvageRequested, unmapMarkSnapChainRemoved, iscsiTargetRequestTimeout, engineReplicaTimeoutShort,
+		engineReplicaTimeoutLong, types.DataServerProtocol(dataServerProtocol), fileSyncHTTPClientTimeout,
+		snapshotMaxCount, snapshotMaxSize,frontendQueues)
 
 	// need to wait for Shutdown() completion
 	control.ShutdownWG.Add(1)

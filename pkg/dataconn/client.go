@@ -7,6 +7,10 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	journal "github.com/longhorn/sparse-tools/stats"
+
+	"github.com/longhorn/longhorn-engine/pkg/types"
 )
 
 const (
@@ -28,7 +32,7 @@ type Client struct {
 }
 
 // NewClient replica client
-func NewClient(conns []net.Conn, engineToReplicaTimeout time.Duration) *Client {
+func NewClient(conns []net.Conn, sharedTimeouts types.SharedTimeouts) *Client {
 	var wires []*Wire
 	for _, conn := range conns {
 		wires = append(wires, NewWire(conn))
@@ -43,7 +47,7 @@ func NewClient(conns []net.Conn, engineToReplicaTimeout time.Duration) *Client {
 		responses: make(chan *Message, 1024),
 		messages:  [queueLength]*Message{},
 		SeqChan:   make(chan uint32, queueLength),
-		opTimeout: engineToReplicaTimeout,
+		sharedTimeouts: sharedTimeouts,
 	}
 	for i := uint32(0); i < queueLength; i++ {
 		c.SeqChan <- i

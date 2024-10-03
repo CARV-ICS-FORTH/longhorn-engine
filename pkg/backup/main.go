@@ -34,6 +34,7 @@ type CreateBackupParameters struct {
 	ConcurrentLimit      int32
 	StorageClassName     string
 	Labels               []string
+	Parameters           map[string]string
 }
 
 type ErrorResponse struct {
@@ -48,7 +49,7 @@ func ResponseLogAndError(v interface{}) {
 		e, isErr := v.(error)
 		_, isRuntimeErr := e.(runtime.Error)
 		if isErr && !isRuntimeErr {
-			logrus.Errorf(fmt.Sprint(e))
+			logrus.Errorf("%v", e)
 			fmt.Println(fmt.Sprint(e))
 		} else {
 			logrus.Errorf("Caught FATAL error: %s", v)
@@ -128,6 +129,7 @@ func DoBackupInit(params *CreateBackupParameters) (*replica.BackupStatus, *backu
 		DestURL:         params.DestURL,
 		DeltaOps:        backup,
 		Labels:          labelMap,
+		Parameters:      params.Parameters,
 	}
 	return backup, config, nil
 }

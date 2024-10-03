@@ -2,6 +2,9 @@ FROM registry.suse.com/bci/bci-base:15.6 AS builder
 
 ARG ARCH=amd64
 
+RUN zypper -n ref && \
+    zypper update -y
+
 RUN zypper -n addrepo --refresh https://download.opensuse.org/repositories/system:/snappy/SLE_15/system:snappy.repo && \
     zypper -n addrepo --refresh https://download.opensuse.org/repositories/network:/utilities/SLE_15_SP5/network:utilities.repo && \
     zypper --gpg-auto-import-keys ref
@@ -46,19 +49,22 @@ RUN git clone --depth 1 --branch liburing-2.5 https://github.com/axboe/liburing.
     make install
 
 # Install grpc_health_probe
-RUN wget https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.24/grpc_health_probe-linux-${ARCH} -O /usr/local/bin/grpc_health_probe && \
+RUN wget https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.28/grpc_health_probe-linux-${ARCH} -O /usr/local/bin/grpc_health_probe && \
     chmod +x /usr/local/bin/grpc_health_probe
 
 FROM registry.suse.com/bci/bci-base:15.6 AS release
 
 ARG ARCH=amd64
 
+RUN zypper -n ref && \
+    zypper update -y
+
 RUN zypper -n addrepo --refresh https://download.opensuse.org/repositories/system:/snappy/SLE_15/system:snappy.repo && \
     zypper -n addrepo --refresh https://download.opensuse.org/repositories/network:/utilities/SLE_15_SP5/network:utilities.repo && \
     zypper --gpg-auto-import-keys ref
 
 RUN zypper -n install nfs-client nfs4-acl-tools cifs-utils libaio1 sg3_utils \
-    iputils iproute2 qemu-tools e2fsprogs && \
+    iputils iproute2 qemu-tools e2fsprogs jq && \
     rm -rf /var/cache/zypp/*
 
 # Copy pre-built binaries from builder
@@ -75,8 +81,6 @@ COPY package/bin/longhorn /usr/local/bin/
 COPY package/bin/longhorn-instance-manager /usr/local/bin/
 
 COPY package/launch-simple-longhorn package/engine-manager package/launch-simple-file /usr/local/bin/
-
-VOLUME /usr/local/bin
 
 # Add Tini
 ENV TINI_VERSION v0.19.0

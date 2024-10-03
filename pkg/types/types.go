@@ -109,7 +109,14 @@ type Backend interface {
 }
 
 type BackendFactory interface {
-	Create(volumeName, address string, dataServerProtocol DataServerProtocol, engineReplicaTimeout time.Duration) (Backend, error)
+	Create(volumeName, address string, dataServerProtocol DataServerProtocol,
+		sharedTimeouts SharedTimeouts) (Backend, error)
+}
+
+type SharedTimeouts interface {
+	Increment()
+	Decrement()
+	CheckAndDecrement(duration time.Duration) time.Duration
 }
 
 type Controller interface {
@@ -138,7 +145,8 @@ type Replica struct {
 }
 
 type ReplicaSalvageInfo struct {
-	LastModifyTime int64
+	Address        string
+	LastModifyTime time.Time
 	HeadFileSize   int64
 }
 
@@ -201,4 +209,9 @@ func GRPCReplicaModeToReplicaMode(replicaMode enginerpc.ReplicaMode) Mode {
 		return ERR
 	}
 	return ERR
+}
+
+type FileLocalSync struct {
+	SourcePath string
+	TargetPath string
 }
