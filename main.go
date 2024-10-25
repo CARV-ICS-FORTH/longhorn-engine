@@ -127,6 +127,7 @@ func longhornCli() {
 	a.Commands = []cli.Command{
 		cmd.ControllerCmd(),
 		cmd.ReplicaCmd(),
+		cmd.ReplicaDBSCmd(),
 		cmd.SyncAgentCmd(),
 		cmd.SyncAgentServerResetCmd(),
 		cmd.StartWithReplicasCmd(),
