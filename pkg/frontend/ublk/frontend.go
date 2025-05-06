@@ -25,6 +25,8 @@ const (
 	qdepth          = 32
 )
 
+var testRwu types.ReaderWriterUnmapperAt
+
 func New(frontendQueues int) *Ublk {
 	return &Ublk{Queues: frontendQueues}
 }
@@ -87,17 +89,21 @@ func (u *Ublk) StartUblk() error {
 }
 
 func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
-	if err := u.startSocketServer(rwu); err != nil {
-		return err
-	}
-	go func() {
-		err := u.StartUblk()
-		if err != nil {
-			logrus.Errorf("Failed to start ublk: %v", err)
-		}
-	}()
-
+	//if err := u.startSocketServer(rwu); err != nil {
+	//	return err
+	//}
+	//go func() {
+	//	err := u.StartUblk()
+	//	if err != nil {
+	//		logrus.Errorf("Failed to start ublk: %v", err)
+	//	}
+	//}()
+	//
+	//return nil
+	testRwu = rwu
+	addDev()
 	return nil
+
 }
 func (u *Ublk) ShutdownUblk() {
 	comm := "ublk"
