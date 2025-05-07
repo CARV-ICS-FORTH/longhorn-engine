@@ -11,6 +11,7 @@ package ublk
 import "C"
 import (
 	"fmt"
+	"github.com/longhorn/longhorn-engine/pkg/dataconn"
 	"os"
 	"unsafe"
 	//"runtime"
@@ -93,47 +94,18 @@ func onRequest(msg *C.struct_msghdr, req *C.struct_message, opType C.int) {
 
 	// Convert to Go []byte safely
 	data := C.GoBytes(dataPtr, C.int(dataLen))
-	done := make(chan error)
-	switch opType {
-	case LONGHORN_CMD_TYPE_READ:
 
-		//_, err := testServer.Data.ReadAt(data, int64(req.offset))
-		//if err != nil {
-		//	return
-		//}
-		ioChan <- IORequest{
-			Offset: int64(req.offset),
-			Data:   data,
-			Type:   int(opType),
-			Done:   done,
-		}
-
-		err := <-done
-		if err != nil {
-			fmt.Println("Error in io handler")
-		}
-		fmt.Println("Read at offset : ", int64(req.offset), " with size : ", req.size)
-		break
-	case LONGHORN_CMD_TYPE_WRITE:
-		//at, err := testRwu.WriteAt(data, int64(req.offset))
-		//if err != nil {
-		//	return
-		//}
-		ioChan <- IORequest{
-			Offset: int64(req.offset),
-			Data:   data,
-			Type:   int(opType),
-			Done:   done,
-		}
-		err := <-done
-		if err != nil {
-			fmt.Println("Error in io handler")
-		}
-		fmt.Println("Write data : ", string(data), " at offset : ", int64(req.offset), " with size : ", req.size)
-		break
-	default:
-		fmt.Println("Unknown command type : ", opType)
-
+	EngineMsg := dataconn.Message{
+		Complete:     make(chan struct{}),
+		MagicVersion: dataconn.MagicVersion,
+		Seq:          C.int(req.seq),
+		Type:         uint32(opType),
+		Offset:       int64(req.offset),
+		Data:         data,
 	}
+
+	dataconn.Requests <- &EngineMsg
+
+	<-EngineMsg.Complete
 
 }

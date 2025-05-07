@@ -102,8 +102,9 @@ func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 	//		logrus.Errorf("Failed to start ublk: %v", err)
 	//	}
 	//}()
+	dataconn.NewFrontendServer(NewDataProcessorWrapper(rwu))
+	logrus.Info("New frontend server established")
 
-	startIOHandler()
 	addDev()
 	return nil
 
