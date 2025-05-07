@@ -11,7 +11,6 @@ package ublk
 import "C"
 import (
 	"fmt"
-	"github.com/Kampadais/giouring"
 	"os"
 	"unsafe"
 	//"runtime"
@@ -29,36 +28,14 @@ const (
 	LONGHORN_CMD_TYPE_UNMAP
 )
 
-type Message struct {
-	//	Complete chan struct{}
-
-	MagicVersion uint16
-	Seq          uint32
-	//Type         uint32
-	Offset       int64
-	Size         uint32
-	DataLen      uint32
-	Data         []byte
-	transportErr error
-
-	//ID journal.OpID //Seq and ID can apparently be collapsed into one (ID)
+type IORequest struct {
+	Offset int64
+	Data   []byte
+	Type   int
+	Done   chan error
 }
 
-var msgArray [1024]Message
-
-var str = "io with iouring"
-
-type controlDevice struct {
-	// File descriptor for the control device
-	fd *os.File
-	// IOUring instance
-	ring *giouring.Ring
-}
-
-func main() {
-	addDev()
-
-}
+var ioChan = make(chan IORequest)
 
 func addDev() {
 
@@ -91,12 +68,23 @@ func addDev() {
 
 }
 
+func startIOHandler() {
+	go func() {
+		for req := range ioChan {
+			var err error
+			if err != nil {
+				fmt.Println("Error in io handler")
+				continue
+			}
+			fmt.Println(req)
+			req.Done <- err
+		}
+	}()
+}
+
 //export onRequest
 func onRequest(msg *C.struct_msghdr, req *C.struct_message, opType C.int) {
-	if testRwu == nil {
-		fmt.Println("testRwu is nil")
-		return
-	}
+
 	iovecs := (*[2]C.struct_iovec)(unsafe.Pointer(msg.msg_iov))[:msg.msg_iovlen:msg.msg_iovlen]
 
 	// Second buffer
@@ -105,15 +93,42 @@ func onRequest(msg *C.struct_msghdr, req *C.struct_message, opType C.int) {
 
 	// Convert to Go []byte safely
 	data := C.GoBytes(dataPtr, C.int(dataLen))
-
+	done := make(chan error)
 	switch opType {
 	case LONGHORN_CMD_TYPE_READ:
 
-		testRwu.ReadAt(data, int64(req.offset))
+		//_, err := testServer.Data.ReadAt(data, int64(req.offset))
+		//if err != nil {
+		//	return
+		//}
+		ioChan <- IORequest{
+			Offset: int64(req.offset),
+			Data:   data,
+			Type:   int(opType),
+			Done:   done,
+		}
+
+		err := <-done
+		if err != nil {
+			fmt.Println("Error in io handler")
+		}
 		fmt.Println("Read at offset : ", int64(req.offset), " with size : ", req.size)
 		break
 	case LONGHORN_CMD_TYPE_WRITE:
-		testRwu.WriteAt(data, int64(req.offset))
+		//at, err := testRwu.WriteAt(data, int64(req.offset))
+		//if err != nil {
+		//	return
+		//}
+		ioChan <- IORequest{
+			Offset: int64(req.offset),
+			Data:   data,
+			Type:   int(opType),
+			Done:   done,
+		}
+		err := <-done
+		if err != nil {
+			fmt.Println("Error in io handler")
+		}
 		fmt.Println("Write data : ", string(data), " at offset : ", int64(req.offset), " with size : ", req.size)
 		break
 	default:

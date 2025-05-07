@@ -45,7 +45,6 @@ github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service
 github.com/Kampadais/dbs
 # github.com/Kampadais/giouring v0.0.0-20250403123126-e41c674f4f95
 ## explicit; go 1.20
-github.com/Kampadais/giouring
 # github.com/aws/aws-sdk-go v1.55.5
 ## explicit; go 1.19
 github.com/aws/aws-sdk-go/aws

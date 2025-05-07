@@ -25,7 +25,11 @@ const (
 	qdepth          = 32
 )
 
-var testRwu types.ReaderWriterUnmapperAt
+type newServer struct {
+	Data types.DataProcessor
+}
+
+var testServer *newServer
 
 func New(frontendQueues int) *Ublk {
 	return &Ublk{Queues: frontendQueues}
@@ -98,9 +102,8 @@ func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 	//		logrus.Errorf("Failed to start ublk: %v", err)
 	//	}
 	//}()
-	//
-	//return nil
-	testRwu = rwu
+
+	startIOHandler()
 	addDev()
 	return nil
 
