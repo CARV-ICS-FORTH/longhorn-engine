@@ -91,21 +91,28 @@ func onRequest(msg *C.struct_msghdr, req *C.struct_message, opType C.int) {
 	// Second buffer
 	dataPtr := iovecs[1].iov_base
 	dataLen := iovecs[1].iov_len
-
+	var data []byte
 	// Convert to Go []byte safely
-	data := C.GoBytes(dataPtr, C.int(dataLen))
-
+	if opType == LONGHORN_CMD_TYPE_WRITE {
+		data = unsafe.Slice((*byte)(dataPtr), dataLen)
+	} else {
+		data = make([]byte, dataLen)
+	}
 	EngineMsg := dataconn.Message{
 		Complete:     make(chan struct{}),
 		MagicVersion: dataconn.MagicVersion,
-		Seq:          C.int(req.seq),
+		Seq:          uint32(C.int(req.seq)),
 		Type:         uint32(opType),
 		Offset:       int64(req.offset),
+		Size:         uint32(req.size),
 		Data:         data,
 	}
 
 	dataconn.Requests <- &EngineMsg
-
 	<-EngineMsg.Complete
+	if opType == LONGHORN_CMD_TYPE_READ {
+		dst := unsafe.Slice((*byte)(dataPtr), dataLen)
+		copy(dst, EngineMsg.Data)
+	}
 
 }

@@ -49,7 +49,6 @@ func (s *FrontendServer) Stop() {
 }
 
 func (s *FrontendServer) handleRead(msg *Message) {
-	fmt.Println("read msg : offset", msg.Offset, " size", msg.Size, "")
 	msg.Data = make([]byte, msg.Size)
 	_, err := s.data.ReadAt(msg.Data, msg.Offset)
 	if err != nil {
@@ -59,7 +58,6 @@ func (s *FrontendServer) handleRead(msg *Message) {
 }
 
 func (s *FrontendServer) handleWrite(msg *Message) {
-	fmt.Println("write msg : offset", msg.Offset, " size", msg.Size, "")
 	_, err := s.data.WriteAt(msg.Data, msg.Offset)
 	if err != nil {
 		fmt.Println(err)

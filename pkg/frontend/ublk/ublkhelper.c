@@ -1419,11 +1419,11 @@ int ublksrv_process_io(const struct ublksrv_queue *tq)
 		NULL : &ts;
 	struct io_uring_cqe *cqe;
 
-	printf("dev%d-q%d: to_submit %d inflight %u/%u stopping %d\n",
-				q->dev->ctrl_dev->dev_info.dev_id,
-				q->q_id, io_uring_sq_ready(&q->ring),
-				q->cmd_inflight, q->tgt_io_inflight,
-				(q->state & UBLKSRV_QUEUE_STOPPING));
+//	printf("dev%d-q%d: to_submit %d inflight %u/%u stopping %d\n",
+//				q->dev->ctrl_dev->dev_info.dev_id,
+//				q->q_id, io_uring_sq_ready(&q->ring),
+//				q->cmd_inflight, q->tgt_io_inflight,
+//				(q->state & UBLKSRV_QUEUE_STOPPING));
 
 	if (ublksrv_queue_is_done(q))
 		return -ENODEV;

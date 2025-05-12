@@ -565,8 +565,8 @@ func (c *Controller) startFrontend() error {
 }
 
 func (c *Controller) StartFrontend(frontend string) error {
-	c.Lock()
-	defer c.Unlock()
+	//c.Lock()
+	//defer c.Unlock()
 
 	if c.isExpanding {
 		return fmt.Errorf("cannot start frontend during the engine expansion")
@@ -878,8 +878,8 @@ func isBackendServiceUnavailable(errorCodes map[string]codes.Code) bool {
 }
 
 func (c *Controller) Start(volumeSize, volumeCurrentSize int64, addresses ...string) error {
-	c.Lock()
-	defer c.Unlock()
+	//c.Lock()
+	//defer c.Unlock()
 
 	if len(addresses) == 0 {
 		return nil
