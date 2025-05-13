@@ -1261,6 +1261,9 @@ static int req_to_longhorn_cmd_type(const struct ublksrv_io_desc *iod)
         return -1;
     }
 }
+uint32_t get_nr_sectors(const struct ublksrv_io_desc *iod){
+    return iod->nr_sectors;
+}
 
 static inline struct ublk_io_tgt *__ublk_get_io_tgt_data(const struct ublk_io_data *io)
 {
@@ -1284,6 +1287,11 @@ static inline void __longhorn_build_req(const struct ublksrv_queue *q,
     } else {
         req->data_length = htole32(0);
     }
+}
+
+// In C
+void onRequestAsyncWrapper(struct msghdr *msg ,struct message *req,int opType,const struct ublksrv_queue *q, const struct ublk_io_data *data) {
+    onRequestAsync(msg ,req,opType,(struct ublksrv_queue *)q, (struct ublk_io_data *)data);
 }
 
 static int demo_handle_io_async(const struct ublksrv_queue *q,
@@ -1320,12 +1328,13 @@ static int demo_handle_io_async(const struct ublksrv_queue *q,
     __longhorn_build_req(q, data, longhorn_data, type, &req);
 
 
-    onRequest(&msg,&req,type);
-    longhorn_data->done = 1;
+   // onRequest(&msg,&req,type);
+   onRequestAsyncWrapper(&msg,&req,type,q,data);
+  //  longhorn_data->done = 1;
 
 
 //ret = longhorn_queue_req(q, data, &req, &msg);
-	ublksrv_complete_io(q, data->tag, iod->nr_sectors << 9);
+//	ublksrv_complete_io(q, data->tag, iod->nr_sectors << 9);
 
 	return 0;
 }
@@ -1409,6 +1418,8 @@ static int ublksrv_reap_events_uring(struct io_uring *r)
 
 int ublksrv_process_io(const struct ublksrv_queue *tq)
 {
+    printf("1");
+    fflush(stdout);
 	struct _ublksrv_queue *q = tq_to_local(tq);
 	int ret, reapped;
 	struct __kernel_timespec ts = {
@@ -1418,7 +1429,8 @@ int ublksrv_process_io(const struct ublksrv_queue *tq)
 	struct __kernel_timespec *tsp = (q->state & UBLKSRV_QUEUE_IDLE) ?
 		NULL : &ts;
 	struct io_uring_cqe *cqe;
-
+   printf("2");
+    fflush(stdout);
 //	printf("dev%d-q%d: to_submit %d inflight %u/%u stopping %d\n",
 //				q->dev->ctrl_dev->dev_info.dev_id,
 //				q->q_id, io_uring_sq_ready(&q->ring),
@@ -1427,12 +1439,22 @@ int ublksrv_process_io(const struct ublksrv_queue *tq)
 
 	if (ublksrv_queue_is_done(q))
 		return -ENODEV;
-
+   printf("3");
+    fflush(stdout);
 	ret = io_uring_submit_and_wait_timeout(&q->ring, &cqe, 1, tsp, NULL);
 
+   printf("4");
+    fflush(stdout);
 	ublksrv_reset_aio_batch(q);
+	   printf("5");
+        fflush(stdout);
 	reapped = ublksrv_reap_events_uring(&q->ring);
+	   printf("6");
+        fflush(stdout);
 	ublksrv_submit_aio_batch(q);
+   printf("7");
+    fflush(stdout);
+
 
 //	if (q->tgt_ops->handle_io_background)
 //		q->tgt_ops->handle_io_background(local_to_tq(q),
@@ -1451,7 +1473,8 @@ int ublksrv_process_io(const struct ublksrv_queue *tq)
 		else
 			ublksrv_queue_idle_exit(q);
 	}
-
+   printf("8");
+    fflush(stdout);
 	return reapped;
 }
 
@@ -1483,8 +1506,13 @@ static void *demo_null_io_handler_fn(void *data)
 			ublksrv_gettid(),
 			dev_id, q->q_id);
 	do {
-		if (ublksrv_process_io(q) < 0)
+		if (ublksrv_process_io(q) < 0){
+			printf("process_io called\n");
+			fflush(stdout);
 			break;
+			}
+			printf("process_io called\n");
+            			fflush(stdout);
 	} while (1);
 
 	fprintf(stdout, "ublk dev %d queue %d exited\n", dev_id, q->q_id);

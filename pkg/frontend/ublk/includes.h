@@ -130,4 +130,8 @@ struct _ublksrv_dev {
 #define		UBLK_IO_OP_ZONE_RESET_ALL	14
 #define		UBLK_IO_OP_ZONE_RESET		15
 
+uint32_t get_nr_sectors(const struct ublksrv_io_desc *iod);
+int ublksrv_complete_io(const struct ublksrv_queue *tq, unsigned tag, int res);
 void onRequest(struct msghdr *msg ,struct message *req,int opType );
+void onRequestAsync(struct msghdr *msg ,struct message *req,int opType,
+                    struct ublksrv_queue *q, struct ublk_io_data *data);
