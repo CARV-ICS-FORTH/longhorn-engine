@@ -10,6 +10,7 @@ const (
 )
 
 var Requests = make(chan *Message, 1024)
+var Replies = make(chan *Message, 1024)
 
 type FrontendServer struct {
 	responses chan *Message
@@ -49,20 +50,22 @@ func (s *FrontendServer) Stop() {
 }
 
 func (s *FrontendServer) handleRead(msg *Message) {
-	msg.Data = make([]byte, msg.Size)
-	_, err := s.data.ReadAt(msg.Data, msg.Offset)
-	if err != nil {
-		fmt.Println(err)
-	}
+	//msg.Data = make([]byte, msg.Size)
+	//_, err := s.data.ReadAt(msg.Data, msg.Offset)
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
 	msg.Complete <- struct{}{}
+	//Replies <- msg
 }
 
 func (s *FrontendServer) handleWrite(msg *Message) {
-	_, err := s.data.WriteAt(msg.Data, msg.Offset)
-	if err != nil {
-		fmt.Println(err)
-	}
+	//_, err := s.data.WriteAt(msg.Data, msg.Offset)
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
 	msg.Complete <- struct{}{}
+	//Replies <- msg
 }
 
 func (s *FrontendServer) handleUnmap(msg *Message) {
@@ -71,6 +74,7 @@ func (s *FrontendServer) handleUnmap(msg *Message) {
 		fmt.Println(err)
 	}
 	msg.Complete <- struct{}{}
+	//Replies <- msg
 }
 
 func (s *FrontendServer) handlePing(msg *Message) {
@@ -79,6 +83,7 @@ func (s *FrontendServer) handlePing(msg *Message) {
 		fmt.Println(err)
 	}
 	msg.Complete <- struct{}{}
+	//Replies <- msg
 }
 
 func (s *FrontendServer) write() {

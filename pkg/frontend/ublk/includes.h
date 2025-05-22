@@ -4,6 +4,8 @@
  * Legacy command definition, don't use in new application, and don't
  * add new such definition any more
  */
+ #include <stdatomic.h>
+
 #define	UBLK_CMD_GET_QUEUE_AFFINITY	0x01
 #define	UBLK_CMD_GET_DEV_INFO	0x02
 #define	UBLK_CMD_ADD_DEV		0x04
@@ -135,3 +137,4 @@ int ublksrv_complete_io(const struct ublksrv_queue *tq, unsigned tag, int res);
 void onRequest(struct msghdr *msg ,struct message *req,int opType );
 void onRequestAsync(struct msghdr *msg ,struct message *req,int opType,
                     struct ublksrv_queue *q, struct ublk_io_data *data);
+void handleReplies(int counter);

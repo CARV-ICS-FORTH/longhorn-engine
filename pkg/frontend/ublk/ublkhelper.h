@@ -355,7 +355,11 @@ struct _ublksrv_queue {
 	char *io_cmd_buf;
 	char *io_buf;
 
-	unsigned cmd_inflight, tgt_io_inflight;	//obsolete
+	unsigned cmd_inflight;
+	_Atomic int tgt_io_inflight;	//obsolete
+	_Atomic int requested;
+	_Atomic int completed;
+	pthread_mutex_t lock;
 	unsigned state;
 
 	/* eventfd */

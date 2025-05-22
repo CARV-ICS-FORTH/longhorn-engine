@@ -16,7 +16,8 @@
 #include <sys/resource.h>
 #include "ublksrv_tgt_endian.h"
 
-
+pthread_mutex_t cond_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 
 #define	CTRL_DEV	"/dev/ublk-control"
@@ -860,6 +861,7 @@ static void ublksrv_set_sched_affinity(struct _ublksrv_dev *dev,
 static inline int ublksrv_queue_io_cmd(struct _ublksrv_queue *q,
 		struct ublk_io *io, unsigned tag)
 {
+    pthread_mutex_lock(&q->lock);
 	struct ublksrv_io_cmd *cmd;
 	struct io_uring_sqe *sqe;
 	unsigned int cmd_op = 0;
@@ -920,6 +922,15 @@ static inline int ublksrv_queue_io_cmd(struct _ublksrv_queue *q,
 //	printf("%s: (qid %d tag %u cmd_op %u) iof %x stopping %d\n",
 //			__func__, q->q_id, tag, cmd_op,
 //			io->flags, !!(q->state & UBLKSRV_QUEUE_STOPPING));
+
+    atomic_fetch_sub(&q->completed,1);
+    if(atomic_fetch_sub(&q->tgt_io_inflight,1) == 1) {
+        pthread_mutex_lock(&cond_mutex);
+        pthread_cond_signal(&cond);
+        pthread_mutex_unlock(&cond_mutex);
+    }
+        pthread_mutex_unlock(&q->lock);
+
 	return 1;
 }
 
@@ -929,6 +940,7 @@ static void ublksrv_submit_fetch_commands(struct _ublksrv_queue *q)
 
 	for (i = 0; i < q->q_depth; i++)
 		ublksrv_queue_io_cmd(q, &q->ios[i], i);
+
 
 	//__ublksrv_queue_event(q); //TODO events disabled
 }
@@ -1078,7 +1090,11 @@ skip_alloc_buf:
 //TODO disabled eventfd
 	/* submit all io commands to ublk driver */
 	ublksrv_submit_fetch_commands(q);
-
+	q->cmd_inflight = 0;
+atomic_init(&q->tgt_io_inflight,0);
+atomic_init(&q->completed,0);
+atomic_init(&q->requested,0);
+pthread_mutex_init(&q->lock,NULL);
 	return (struct ublksrv_queue *)q;
  fail:
 	//ublksrv_queue_deinit(local_to_tq(q)); //TODO deinit diabled
@@ -1224,10 +1240,10 @@ int ublksrv_complete_io(const struct ublksrv_queue *tq, unsigned tag, int res)
 {
 	struct _ublksrv_queue *q = tq_to_local(tq);
 
+
 	struct ublk_io *io = &q->ios[tag];
 
 	ublksrv_mark_io_done(io, res);
-
 	return ublksrv_queue_io_cmd(q, io, tag);
 }
 
@@ -1330,6 +1346,8 @@ static int demo_handle_io_async(const struct ublksrv_queue *q,
 
    // onRequest(&msg,&req,type);
    onRequestAsyncWrapper(&msg,&req,type,q,data);
+   struct _ublksrv_queue *q_t = tq_to_local(q);
+   atomic_fetch_add(&q_t->tgt_io_inflight,1);
   //  longhorn_data->done = 1;
 
 
@@ -1376,28 +1394,28 @@ static void ublksrv_handle_cqe(struct io_uring *r,
 	 * todo: support async tgt io handling via io_uring, and the ublksrv
 	 * daemon can poll on both two rings.
 	 */
-	 	demo_handle_io_async(local_to_tq(q), &io->data);
-//	if (cqe->res == UBLK_IO_RES_OK) {
-//		//ublk_assert(tag < q->q_depth);
-//
-//		//q->tgt_ops->handle_io_async(local_to_tq(q), &io->data);
-//
-//
-//
-//	} else if (cqe->res == UBLK_IO_RES_NEED_GET_DATA) {
-//		io->flags |= UBLKSRV_NEED_GET_DATA | UBLKSRV_IO_FREE;
-//		ublksrv_queue_io_cmd(q, io, tag);
-//	} else {
-//		/*
-//		 * COMMIT_REQ will be completed immediately since no fetching
-//		 * piggyback is required.
-//		 *
-//		 * Marking IO_FREE only, then this io won't be issued since
-//		 * we only issue io with (UBLKSRV_IO_FREE | UBLKSRV_NEED_*)
-//		 *
-//		 * */
-//		io->flags = UBLKSRV_IO_FREE;
-//	}
+
+	if (cqe->res == UBLK_IO_RES_OK) {
+		//ublk_assert(tag < q->q_depth);
+
+		//q->tgt_ops->handle_io_async(local_to_tq(q), &io->data);
+        demo_handle_io_async(local_to_tq(q), &io->data);
+
+
+	} else if (cqe->res == UBLK_IO_RES_NEED_GET_DATA) {
+		io->flags |= UBLKSRV_NEED_GET_DATA | UBLKSRV_IO_FREE;
+		ublksrv_queue_io_cmd(q, io, tag);
+	} else {
+		/*
+		 * COMMIT_REQ will be completed immediately since no fetching
+		 * piggyback is required.
+		 *
+		 * Marking IO_FREE only, then this io won't be issued since
+		 * we only issue io with (UBLKSRV_IO_FREE | UBLKSRV_NEED_*)
+		 *
+		 * */
+		io->flags = UBLKSRV_IO_FREE;
+	}
 }
 
 static int ublksrv_reap_events_uring(struct io_uring *r)
@@ -1418,8 +1436,6 @@ static int ublksrv_reap_events_uring(struct io_uring *r)
 
 int ublksrv_process_io(const struct ublksrv_queue *tq)
 {
-    printf("1");
-    fflush(stdout);
 	struct _ublksrv_queue *q = tq_to_local(tq);
 	int ret, reapped;
 	struct __kernel_timespec ts = {
@@ -1429,8 +1445,6 @@ int ublksrv_process_io(const struct ublksrv_queue *tq)
 	struct __kernel_timespec *tsp = (q->state & UBLKSRV_QUEUE_IDLE) ?
 		NULL : &ts;
 	struct io_uring_cqe *cqe;
-   printf("2");
-    fflush(stdout);
 //	printf("dev%d-q%d: to_submit %d inflight %u/%u stopping %d\n",
 //				q->dev->ctrl_dev->dev_info.dev_id,
 //				q->q_id, io_uring_sq_ready(&q->ring),
@@ -1439,22 +1453,29 @@ int ublksrv_process_io(const struct ublksrv_queue *tq)
 
 	if (ublksrv_queue_is_done(q))
 		return -ENODEV;
-   printf("3");
-    fflush(stdout);
-	ret = io_uring_submit_and_wait_timeout(&q->ring, &cqe, 1, tsp, NULL);
 
-   printf("4");
-    fflush(stdout);
-	ublksrv_reset_aio_batch(q);
-	   printf("5");
-        fflush(stdout);
+
+
+    pthread_mutex_lock(&cond_mutex);
+    while(atomic_load(&q->tgt_io_inflight)>0) {
+        pthread_cond_wait(&cond,&cond_mutex);
+    }
+    pthread_mutex_unlock(&cond_mutex);
+
+   ret = io_uring_submit_and_wait_timeout(&q->ring, &cqe, 1, tsp, NULL);
+//    fflush(stdout);
+//    if(atomic_load(&q->tgt_io_inflight)>0){
+//       io_uring_submit(&q->ring);
+//    }else {
+//      ret = io_uring_submit_and_wait_timeout(&q->ring, &cqe, 1, tsp, NULL);
+//    }
+//	//ublksrv_reset_aio_batch(q);
 	reapped = ublksrv_reap_events_uring(&q->ring);
-	   printf("6");
-        fflush(stdout);
-	ublksrv_submit_aio_batch(q);
-   printf("7");
-    fflush(stdout);
+	atomic_fetch_add(&q->requested,reapped);
+	//ublksrv_submit_aio_batch(q);
 
+
+   // handleReplies(reapped);
 
 //	if (q->tgt_ops->handle_io_background)
 //		q->tgt_ops->handle_io_background(local_to_tq(q),
@@ -1473,8 +1494,6 @@ int ublksrv_process_io(const struct ublksrv_queue *tq)
 		else
 			ublksrv_queue_idle_exit(q);
 	}
-   printf("8");
-    fflush(stdout);
 	return reapped;
 }
 
@@ -1507,12 +1526,8 @@ static void *demo_null_io_handler_fn(void *data)
 			dev_id, q->q_id);
 	do {
 		if (ublksrv_process_io(q) < 0){
-			printf("process_io called\n");
-			fflush(stdout);
 			break;
 			}
-			printf("process_io called\n");
-            			fflush(stdout);
 	} while (1);
 
 	fprintf(stdout, "ublk dev %d queue %d exited\n", dev_id, q->q_id);

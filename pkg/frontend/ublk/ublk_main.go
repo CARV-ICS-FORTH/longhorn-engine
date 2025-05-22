@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"github.com/longhorn/longhorn-engine/pkg/dataconn"
 	"os"
-	"time"
 	"unsafe"
 	//"runtime"
 	//"time"
@@ -98,7 +97,7 @@ func onRequest(msg *C.struct_msghdr, req *C.struct_message, opType C.int) {
 //export onRequestAsync
 func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q *C.struct_ublksrv_queue, data *C.struct_ublk_io_data) {
 
-	fmt.Println("called at ", time.Now(), "for IO tag ", int(req.seq))
+	//fmt.Println("called at ", time.Now(), "for IO tag ", int(req.seq))
 	iovecs := (*[2]C.struct_iovec)(unsafe.Pointer(msg.msg_iov))[:msg.msg_iovlen:msg.msg_iovlen]
 
 	// Second buffer
@@ -122,7 +121,7 @@ func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q
 	}
 
 	go func(msgObj *dataconn.Message, opType C.int, dataPtr unsafe.Pointer, dataLen C.size_t, q *C.struct_ublksrv_queue, data *C.struct_ublk_io_data) {
-		fmt.Println("inside go func at ", time.Now(), "for IO tag ", msgObj.Seq)
+		//	fmt.Println("inside go func at ", time.Now(), "for IO tag ", msgObj.Seq)
 
 		dataconn.Requests <- msgObj
 		<-msgObj.Complete
@@ -132,6 +131,15 @@ func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q
 		}
 		nrSectors := C.get_nr_sectors(data.iod)
 		C.ublksrv_complete_io(q, C.uint(data.tag), C.int(nrSectors<<9))
-		fmt.Println("End of complete_io at ", time.Now(), "for IO tag ", msgObj.Seq)
+		//	fmt.Println("End of complete_io at ", time.Now(), "for IO tag ", msgObj.Seq)
 	}(&EngineMsg, opType, dataPtr, dataLen, q, data)
+}
+
+//export handleReplies
+func handleReplies(counter C.int) {
+	for counter > 0 {
+		reply := <-dataconn.Replies
+		reply.Complete <- struct{}{}
+		counter--
+	}
 }
