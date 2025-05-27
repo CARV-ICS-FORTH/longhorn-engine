@@ -1597,4 +1597,96 @@ int ublksrv_start_daemon(struct ublksrv_ctrl_dev *ctrl_dev)
 	return ret;
 }
 
+int ublksrv_ctrl_del_dev(struct ublksrv_ctrl_dev *dev)
+{
+	struct ublksrv_ctrl_cmd_data data = {
+		.cmd_op = UBLK_CMD_DEL_DEV,
+		.flags = 0,
+	};
 
+	ublk_un_privileged_prep_data(dev, data);
+
+	return __ublksrv_ctrl_cmd(dev, &data);
+}
+
+
+int ublksrv_ctrl_stop_dev(struct ublksrv_ctrl_dev *dev)
+{
+	struct ublksrv_ctrl_cmd_data data = {
+		.cmd_op	= UBLK_CMD_STOP_DEV,
+	};
+	int ret;
+
+	ublk_un_privileged_prep_data(dev, data);
+
+	ret = __ublksrv_ctrl_cmd(dev, &data);
+	return ret;
+}
+
+void ublksrv_ctrl_deinit(struct ublksrv_ctrl_dev *dev)
+{
+	close(dev->ring.ring_fd);
+	close(dev->ctrl_fd);
+	free(dev->queues_cpuset);
+	free(dev);
+}
+
+static int ublksrv_stop_io_daemon(const struct ublksrv_ctrl_dev *ctrl_dev)
+{
+	int daemon_pid, cnt = 0;
+
+	/* wait until daemon is exited, or timeout after 3 seconds */
+	do {
+		daemon_pid = ublksrv_get_io_daemon_pid(ctrl_dev, false);
+		if (daemon_pid > 0) {
+			usleep(100000);
+			cnt++;
+		}
+	} while (daemon_pid > 0 && cnt < 30);
+
+	if (daemon_pid > 0)
+		return -1;
+
+	return 0;
+}
+
+int cmd_dev_del(int number)
+{
+	struct ublksrv_ctrl_dev *dev;
+	int ret;
+	struct ublksrv_dev_data data = {
+		.dev_id = number,
+		.run_dir = UBLKSRV_PID_DIR,
+	};
+
+	dev = ublksrv_ctrl_init(&data);
+	if (!dev) {
+		fprintf(stderr, "ublksrv_ctrl_init failed id %d\n", number);
+		return -EOPNOTSUPP;
+	}
+
+
+	ret = ublksrv_ctrl_stop_dev(dev);
+	if (ret < 0) {
+		fprintf(stderr, "stop dev %d failed\n", number);
+		fflush(stdout);
+		goto fail;
+	}
+
+	ret = ublksrv_stop_io_daemon(dev);
+	if (ret < 0){
+		fprintf(stderr, "stop daemon %d failed\n", number);
+    fflush(stdout);
+}
+
+	ret = ublksrv_ctrl_del_dev(dev);
+	if (ret < 0) {
+		fprintf(stderr, "delete dev %d failed %d\n", number, ret);
+		fflush(stdout);
+		goto fail;
+	}
+
+fail:
+	ublksrv_ctrl_deinit(dev);
+	return ret;
+}

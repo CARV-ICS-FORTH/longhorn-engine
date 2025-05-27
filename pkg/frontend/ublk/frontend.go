@@ -1,20 +1,16 @@
 package ublk
 
+import "C"
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/longhorn/longhorn-engine/pkg/dataconn"
+	"github.com/longhorn/longhorn-engine/pkg/types"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strconv"
-
-	"github.com/longhorn/longhorn-engine/pkg/dataconn"
-	"github.com/longhorn/longhorn-engine/pkg/types"
 )
 
 const (
@@ -60,87 +56,18 @@ func (u *Ublk) Init(name string, size, sectorSize int64) error {
 	return nil
 }
 
-func (u *Ublk) StartUblk() error {
-
-	command := "add"
-	args := []string{"-t", "longhorn", "-f", u.socketPath, "-s", strconv.FormatInt(u.Size, 10), "-d", strconv.Itoa(qdepth), "-q", strconv.Itoa(u.Queues)}
-
-	cmd := exec.Command("ublk", append([]string{command}, args...)...)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		logrus.Error("Error starting ublk:", err)
-		return nil
-	}
-
-	logrus.Info("ublk started successfully")
-
-	var jsonOutput map[string]interface{}
-	err = json.Unmarshal(output, &jsonOutput)
-
-	if err != nil {
-		return err
-	}
-
-	u.UblkID = int(jsonOutput["dev_id"].(float64))
-	u.DaemonPId = int(jsonOutput["daemon_pid"].(float64))
-	u.Queues = int(jsonOutput["nr_hw_queues"].(float64))
-	u.QueueDepth = int(jsonOutput["queue_depth"].(float64))
-	u.BlockSize = int(jsonOutput["block_size"].(float64))
-
-	u.isUp = true
-	return nil
-}
-
 func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
-	//if err := u.startSocketServer(rwu); err != nil {
-	//	return err
-	//}
-	//go func() {
-	//	err := u.StartUblk()
-	//	if err != nil {
-	//		logrus.Errorf("Failed to start ublk: %v", err)
-	//	}
-	//}()
+
 	dataconn.NewFrontendServer(NewDataProcessorWrapper(rwu))
 	logrus.Info("New frontend server established")
 
-	addDev()
+	u.addDev()
 	return nil
 
 }
-func (u *Ublk) ShutdownUblk() {
-	comm := "ublk"
-	args := []string{"del", strconv.Itoa(u.UblkID)}
-
-	cmd := exec.Command(comm, args...)
-	logrus.Infof("Running command: %v", cmd.Args)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		logrus.Errorf("Error stopping ublk: %v", err)
-		return
-	}
-	logrus.Infof("ublk stopped successfully: %v", string(output))
-}
 
 func (u *Ublk) Shutdown() error {
-	_, file, no, ok := runtime.Caller(1)
-	if ok {
-		logrus.Infof("\ncalled from %s#%d\n\n", file, no)
-	}
-	if u.Volume != "" {
-		if u.socketServer != nil {
-			logrus.Infof("Shutting down TGT socket server for %v", u.Volume)
-			u.socketServer.Stop()
-			u.socketServer = nil
-		}
-	}
-	u.isUp = false
-
-	go func() {
-		u.ShutdownUblk()
-	}()
-
+	u.shutDownC()
 	return nil
 }
 

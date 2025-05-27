@@ -138,3 +138,5 @@ void onRequest(struct msghdr *msg ,struct message *req,int opType );
 void onRequestAsync(struct msghdr *msg ,struct message *req,int opType,
                     struct ublksrv_queue *q, struct ublk_io_data *data);
 void handleReplies(int counter);
+
+int cmd_dev_del(int number);

@@ -29,7 +29,14 @@ const (
 	LONGHORN_CMD_TYPE_UNMAP
 )
 
-func addDev() {
+func (u *Ublk) shutDownC() error {
+	fmt.Println("Shutting down ")
+	C.cmd_dev_del(C.int(u.UblkID))
+	fmt.Println("Done shutting down ")
+	return nil
+}
+
+func (u *Ublk) addDev() {
 
 	err := os.MkdirAll("/tmp/ublksrvd", 0755)
 	if err != nil {
@@ -54,9 +61,9 @@ func addDev() {
 	C.ublksrv_ctrl_add_dev(dev)
 	C.init_params(dev, &data)
 
-	C.ublksrv_start_daemon(dev)
+	u.UblkID = int(dev.dev_info.dev_id)
 
-	C.ublksrv_ctrl_start_dev(dev, C.int(os.Getpid()))
+	C.ublksrv_start_daemon(dev)
 
 }
 
