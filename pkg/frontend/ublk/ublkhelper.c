@@ -191,6 +191,7 @@ static int __ublksrv_ctrl_cmd(struct ublksrv_ctrl_dev *dev,
 	sqe = io_uring_get_sqe(&dev->ring);
 	if (!sqe) {
 		fprintf(stderr, "can't get sqe ret %d\n", ret);
+		fflush(stdout);
 		return ret;
 	}
 
@@ -199,6 +200,7 @@ static int __ublksrv_ctrl_cmd(struct ublksrv_ctrl_dev *dev,
 	ret = io_uring_submit(&dev->ring);
 	if (ret < 0) {
 		fprintf(stderr, "uring submit ret %d\n", ret);
+		fflush(stdout);
 		return ret;
 	}
 
@@ -207,13 +209,14 @@ static int __ublksrv_ctrl_cmd(struct ublksrv_ctrl_dev *dev,
 	} while (ret == -EINTR);
 	if (ret < 0) {
 		fprintf(stderr, "wait cqe: %s\n", strerror(-ret));
+		fflush(stdout);
 		return ret;
 	}
 	io_uring_cqe_seen(&dev->ring, cqe);
 
-//	printf("dev %d, ctrl cqe res %d, user_data %llx\n",
-//			dev->dev_info.dev_id, cqe->res, cqe->user_data);
-//			fflush(stdout);
+	printf("dev %d, ctrl cqe res %d, user_data %llx\n",
+			dev->dev_info.dev_id, cqe->res, cqe->user_data);
+			fflush(stdout);
 	return cqe->res;
 }
 
@@ -1524,6 +1527,7 @@ static void *demo_null_io_handler_fn(void *data)
 	fprintf(stdout, "tid %d: ublk dev %d queue %d started\n",
 			ublksrv_gettid(),
 			dev_id, q->q_id);
+	fflush(stdout);
 	do {
 		if (ublksrv_process_io(q) < 0){
 			break;
@@ -1531,7 +1535,8 @@ static void *demo_null_io_handler_fn(void *data)
 	} while (1);
 
 	fprintf(stdout, "ublk dev %d queue %d exited\n", dev_id, q->q_id);
-	//fflush(stdout);
+	fflush(stdout);
+	notifyShutdown();
 	//ublksrv_queue_deinit(q); //TODO deinit disabled
 	return NULL;
 }
@@ -1619,7 +1624,11 @@ int ublksrv_ctrl_stop_dev(struct ublksrv_ctrl_dev *dev)
 
 	ublk_un_privileged_prep_data(dev, data);
 
+    printf("after prep data \n");
+    fflush(stdout);
 	ret = __ublksrv_ctrl_cmd(dev, &data);
+	printf("after command \n");
+        fflush(stdout);
 	return ret;
 }
 
@@ -1649,6 +1658,82 @@ static int ublksrv_stop_io_daemon(const struct ublksrv_ctrl_dev *ctrl_dev)
 
 	return 0;
 }
+static int __ublksrv_ctrl_get_info_no_trans(struct ublksrv_ctrl_dev *dev,
+		unsigned cmd_op)
+{
+	char buf[UBLKC_PATH_MAX + sizeof(dev->dev_info)];
+	struct ublksrv_ctrl_cmd_data data = {
+		.cmd_op	= cmd_op,
+		.flags	= CTRL_CMD_HAS_BUF | CTRL_CMD_NO_TRANS,
+		.addr = (__u64)&dev->dev_info,
+		.len = sizeof(struct ublksrv_ctrl_dev_info),
+	};
+	bool has_dev_path = false;
+	int ret;
+
+	if (ublk_is_unprivileged(dev) && _IOC_NR(data.cmd_op) == UBLK_CMD_GET_DEV_INFO)
+		return -EINVAL;
+
+	if (_IOC_NR(data.cmd_op) == UBLK_CMD_GET_DEV_INFO2) {
+		snprintf(buf, UBLKC_PATH_MAX, "%s%d", UBLKC_DEV,
+			dev->dev_info.dev_id);
+		data.flags |= CTRL_CMD_HAS_BUF | CTRL_CMD_HAS_DATA;
+		data.len = sizeof(buf);
+		data.dev_path_len = UBLKC_PATH_MAX;
+		data.addr = (__u64)buf;
+		has_dev_path = true;
+	}
+
+	ret = __ublksrv_ctrl_cmd(dev, &data);
+	if (ret >= 0 && has_dev_path)
+		memcpy(&dev->dev_info, &buf[UBLKC_PATH_MAX],
+				sizeof(dev->dev_info));
+	return ret;
+}
+static int __ublksrv_ctrl_get_info(struct ublksrv_ctrl_dev *dev,
+		unsigned cmd_op)
+{
+	unsigned new_code = legacy_op_to_ioctl(cmd_op);
+	int ret = __ublksrv_ctrl_get_info_no_trans(dev, new_code);
+
+	/*
+	 * Try ioctl cmd encoding first, then fallback to legacy command
+	 * opcode if ioctl encoding fails
+	 */
+	if (ret < 0)
+		ret = __ublksrv_ctrl_get_info_no_trans(dev, cmd_op);
+
+	return ret;
+}
+
+int ublksrv_ctrl_get_info(struct ublksrv_ctrl_dev *dev)
+{
+	int ret;
+
+	unsigned cmd_op	=
+#ifdef UBLK_CMD_GET_DEV_INFO2
+		UBLK_CMD_GET_DEV_INFO2;
+#else
+		UBLK_CMD_GET_DEV_INFO;
+#endif
+	ret = __ublksrv_ctrl_get_info(dev, cmd_op);
+
+	if (cmd_op == UBLK_CMD_GET_DEV_INFO)
+		return ret;
+
+	if (ret < 0) {
+		/* unprivileged does support GET_DEV_INFO2 */
+		if (ublk_is_unprivileged(dev))
+			return ret;
+		/*
+		 * fallback to GET_DEV_INFO since driver may not support
+		 * GET_DEV_INFO2
+		 */
+		ret = __ublksrv_ctrl_get_info(dev, UBLK_CMD_GET_DEV_INFO);
+	}
+
+	return ret;
+}
 
 int cmd_dev_del(int number)
 {
@@ -1665,6 +1750,12 @@ int cmd_dev_del(int number)
 		return -EOPNOTSUPP;
 	}
 
+	ret = ublksrv_ctrl_get_info(dev);
+    	if (ret < 0) {
+    		ret = 0;
+    		fprintf(stderr, "can't get dev info from %d: %d\n", number, ret);
+    		goto fail;
+    	}
 
 	ret = ublksrv_ctrl_stop_dev(dev);
 	if (ret < 0) {
@@ -1673,11 +1764,11 @@ int cmd_dev_del(int number)
 		goto fail;
 	}
 
-	ret = ublksrv_stop_io_daemon(dev);
-	if (ret < 0){
-		fprintf(stderr, "stop daemon %d failed\n", number);
-    fflush(stdout);
-}
+//	ret = ublksrv_stop_io_daemon(dev);
+//	if (ret < 0){
+//		fprintf(stderr, "stop daemon %d failed\n", number);
+//    fflush(stdout);
+//}
 
 	ret = ublksrv_ctrl_del_dev(dev);
 	if (ret < 0) {
@@ -1686,7 +1777,54 @@ int cmd_dev_del(int number)
 		goto fail;
 	}
 
+    fflush(stdout);
 fail:
 	ublksrv_ctrl_deinit(dev);
+	fflush(stderr);
+	fflush(stdout);
+	return ret;
+}
+
+
+int cmd_dev_del2(int number)
+{
+	struct ublksrv_ctrl_dev *dev;
+	int ret;
+	struct ublksrv_dev_data data = {
+		.dev_id = number,
+		.run_dir = UBLKSRV_PID_DIR,
+	};
+
+	dev = ublksrv_ctrl_init(&data);
+	if (!dev) {
+		fprintf(stdout, "ublksrv_ctrl_init failed id %d\n", number);
+		fflush(stdout);
+		return -EOPNOTSUPP;
+	}
+
+	ret = ublksrv_ctrl_get_info(dev);
+    	if (ret < 0) {
+    		ret = 0;
+    		fprintf(stdout, "can't get dev info from %d: %d\n", number, ret);
+    		fflush(stdout);
+    	}
+
+	ret = ublksrv_ctrl_stop_dev(dev);
+	if (ret < 0) {
+		fprintf(stdout, "stop dev %d failed\n", number);
+		fflush(stdout);
+	}
+
+	ret = ublksrv_ctrl_del_dev(dev);
+    	if (ret < 0) {
+    		fprintf(stdout, "delete dev %d failed %d\n", number, ret);
+    		fflush(stdout);
+    	}
+	printf("Deiniting dev\n");
+	fflush(stdout);
+	ublksrv_ctrl_deinit(dev);
+    fflush(stdout);
+	printf("deinit complete\n");
+	fflush(stdout);
 	return ret;
 }

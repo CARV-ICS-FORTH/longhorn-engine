@@ -140,3 +140,5 @@ void onRequestAsync(struct msghdr *msg ,struct message *req,int opType,
 void handleReplies(int counter);
 
 int cmd_dev_del(int number);
+int cmd_dev_del2(int number);
+void notifyShutdown();

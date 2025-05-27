@@ -25,7 +25,7 @@ type newServer struct {
 	Data types.DataProcessor
 }
 
-var testServer *newServer
+var Done = make(chan struct{})
 
 func New(frontendQueues int) *Ublk {
 	return &Ublk{Queues: frontendQueues}
@@ -67,7 +67,8 @@ func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 }
 
 func (u *Ublk) Shutdown() error {
-	u.shutDownC()
+	go u.shutDownC()
+	<-Done
 	return nil
 }
 

@@ -30,9 +30,7 @@ const (
 )
 
 func (u *Ublk) shutDownC() error {
-	fmt.Println("Shutting down ")
-	C.cmd_dev_del(C.int(u.UblkID))
-	fmt.Println("Done shutting down ")
+	C.cmd_dev_del2(C.int(u.UblkID))
 	return nil
 }
 
@@ -149,4 +147,11 @@ func handleReplies(counter C.int) {
 		reply.Complete <- struct{}{}
 		counter--
 	}
+}
+
+//export notifyShutdown
+func notifyShutdown() {
+	fmt.Println("notify shutdown chan")
+	Done <- struct{}{}
+
 }
