@@ -1,5 +1,12 @@
 package ublk
 
+/*
+#cgo CFLAGS: -I.
+#cgo LDFLAGS: -luring
+#include "ublkhelper.h"
+#include <stdlib.h>
+
+*/
 import "C"
 import (
 	"fmt"
@@ -11,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"unsafe"
 )
 
 const (
@@ -19,6 +27,15 @@ const (
 	SocketDirectory = "/var/run"
 	DevPath         = "/dev/longhorn/"
 	qdepth          = 32
+
+	LONGHORN_CMD_TYPE_READ = iota
+	LONGHORN_CMD_TYPE_WRITE
+	LONGHORN_CMD_TYPE_RESPONSE
+	LONGHORN_CMD_TYPE_ERROR
+	LONGHORN_CMD_TYPE_EOF
+	LONGHORN_CMD_TYPE_CLOSE
+	LONGHORN_CMD_TYPE_PING
+	LONGHORN_CMD_TYPE_UNMAP
 )
 
 type newServer struct {
@@ -26,10 +43,6 @@ type newServer struct {
 }
 
 var Done = make(chan struct{})
-
-func New(frontendQueues int) *Ublk {
-	return &Ublk{Queues: frontendQueues}
-}
 
 type Ublk struct {
 	Volume     string
@@ -43,6 +56,10 @@ type Ublk struct {
 	isUp         bool
 	socketPath   string
 	socketServer *dataconn.Server
+}
+
+func New(frontendQueues int) *Ublk {
+	return &Ublk{Queues: frontendQueues}
 }
 
 func (u *Ublk) FrontendName() string {
@@ -61,13 +78,38 @@ func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 	dataconn.NewFrontendServer(NewDataProcessorWrapper(rwu))
 	logrus.Info("New frontend server established")
 
-	u.addDev()
+	err := os.MkdirAll("/tmp/ublksrvd", 0755)
+	if err != nil {
+		fmt.Println("Error creating directory")
+		return err
+	}
+	queueDepth := C.DEF_QD
+	nrHwQueues := C.DEF_NR_HW_QUEUES
+	devId := -1
+	runDir := C.UBLKSRV_PID_DIR
+	maxIOBufBytes := C.DEF_BUF_SIZE
+
+	data := C.struct_ublksrv_dev_data{
+		queue_depth:      C.ushort(queueDepth),
+		nr_hw_queues:     C.ushort(nrHwQueues),
+		dev_id:           C.int(devId),
+		run_dir:          C.CString(runDir),
+		max_io_buf_bytes: C.uint(maxIOBufBytes),
+	}
+
+	dev := C.ublksrv_ctrl_init(&data)
+	C.ublksrv_ctrl_add_dev(dev)
+	C.init_params(dev, &data)
+
+	u.UblkID = int(dev.dev_info.dev_id)
+
+	C.ublksrv_start_daemon(dev)
 	return nil
 
 }
 
 func (u *Ublk) Shutdown() error {
-	go u.shutDownC()
+	go C.cmd_dev_del(C.int(u.UblkID))
 	<-Done
 	return nil
 }
@@ -152,6 +194,48 @@ func (u *Ublk) handleServerConnection(c net.Conn, rwu types.ReaderWriterUnmapper
 	} else if err == io.EOF {
 		logrus.Warn("Socket server connection closed")
 	}
+}
+
+//export onRequestAsync
+func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q *C.struct_ublksrv_queue, data *C.struct_ublk_io_data) {
+
+	iovecs := (*[2]C.struct_iovec)(unsafe.Pointer(msg.msg_iov))[:msg.msg_iovlen:msg.msg_iovlen]
+
+	dataPtr := iovecs[1].iov_base
+	dataLen := iovecs[1].iov_len
+	var buf []byte
+	if opType == LONGHORN_CMD_TYPE_WRITE {
+		buf = unsafe.Slice((*byte)(dataPtr), dataLen)
+	} else {
+		buf = make([]byte, dataLen)
+	}
+	EngineMsg := dataconn.Message{
+		Complete:     make(chan struct{}),
+		MagicVersion: dataconn.MagicVersion,
+		Seq:          uint32(C.int(req.seq)),
+		Type:         uint32(opType),
+		Offset:       int64(req.offset),
+		Size:         uint32(req.size),
+		Data:         buf,
+	}
+
+	go func(msgObj *dataconn.Message, opType C.int, dataPtr unsafe.Pointer, dataLen C.size_t, q *C.struct_ublksrv_queue, data *C.struct_ublk_io_data) {
+
+		dataconn.Requests <- msgObj
+		<-msgObj.Complete
+		if opType == LONGHORN_CMD_TYPE_READ {
+			dst := unsafe.Slice((*byte)(dataPtr), dataLen)
+			copy(dst, msgObj.Data)
+		}
+		nrSectors := C.get_nr_sectors(data.iod)
+		C.ublksrv_complete_io(q, C.uint(data.tag), C.int(nrSectors<<9))
+	}(&EngineMsg, opType, dataPtr, dataLen, q, data)
+}
+
+//export notifyShutdown
+func notifyShutdown() {
+	fmt.Println("notify shutdown chan")
+	Done <- struct{}{}
 }
 
 type DataProcessorWrapper struct {

@@ -6,24 +6,18 @@ import (
 )
 
 const (
-	FrontendthreadCount = 32
+	FrontendthreadCount = 128
 )
 
 var Requests = make(chan *Message, 1024)
-var Replies = make(chan *Message, 1024)
 
 type FrontendServer struct {
-	responses chan *Message
-	done      chan struct{}
-	data      types.DataProcessor
+	data types.DataProcessor
 }
 
 func NewFrontendServer(data types.DataProcessor) *FrontendServer {
-	//init theads
 	server := &FrontendServer{
-		responses: make(chan *Message, 1024),
-		done:      make(chan struct{}, 5),
-		data:      data,
+		data: data,
 	}
 	for i := 0; i < FrontendthreadCount; i++ {
 		go func(s *FrontendServer) {
@@ -45,27 +39,21 @@ func NewFrontendServer(data types.DataProcessor) *FrontendServer {
 	return server
 }
 
-func (s *FrontendServer) Stop() {
-	s.done <- struct{}{}
-}
-
 func (s *FrontendServer) handleRead(msg *Message) {
-	//msg.Data = make([]byte, msg.Size)
-	//_, err := s.data.ReadAt(msg.Data, msg.Offset)
-	//if err != nil {
-	//	fmt.Println(err)
-	//}
+	msg.Data = make([]byte, msg.Size)
+	_, err := s.data.ReadAt(msg.Data, msg.Offset)
+	if err != nil {
+		fmt.Println(err)
+	}
 	msg.Complete <- struct{}{}
-	//Replies <- msg
 }
 
 func (s *FrontendServer) handleWrite(msg *Message) {
-	//_, err := s.data.WriteAt(msg.Data, msg.Offset)
-	//if err != nil {
-	//	fmt.Println(err)
-	//}
+	_, err := s.data.WriteAt(msg.Data, msg.Offset)
+	if err != nil {
+		fmt.Println(err)
+	}
 	msg.Complete <- struct{}{}
-	//Replies <- msg
 }
 
 func (s *FrontendServer) handleUnmap(msg *Message) {
@@ -74,7 +62,6 @@ func (s *FrontendServer) handleUnmap(msg *Message) {
 		fmt.Println(err)
 	}
 	msg.Complete <- struct{}{}
-	//Replies <- msg
 }
 
 func (s *FrontendServer) handlePing(msg *Message) {
@@ -83,13 +70,4 @@ func (s *FrontendServer) handlePing(msg *Message) {
 		fmt.Println(err)
 	}
 	msg.Complete <- struct{}{}
-	//Replies <- msg
-}
-
-func (s *FrontendServer) write() {
-
-}
-
-func (s *FrontendServer) handleRequests() {
-
 }
