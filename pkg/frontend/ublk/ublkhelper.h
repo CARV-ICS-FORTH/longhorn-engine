@@ -10,7 +10,7 @@
  #include <stdatomic.h>
 
 #define	DEF_QD		128
-#define	DEF_NR_HW_QUEUES 1
+#define	DEF_NR_HW_QUEUES 6
 #define	DEF_BUF_SIZE	(512 << 10)
 
 #define UBLKSRV_PID_DIR  "/tmp/ublksrvd"
@@ -345,6 +345,8 @@ struct _ublksrv_queue {
 
 	_Atomic int tgt_io_inflight;
 	pthread_mutex_t lock;
+	pthread_mutex_t cond_mutex;
+    pthread_cond_t cond;
 	unsigned state;
 
 	/* eventfd */

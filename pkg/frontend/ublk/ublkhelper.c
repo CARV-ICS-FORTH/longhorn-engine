@@ -15,10 +15,6 @@
 #include <sys/resource.h>
 #include "ublksrv_tgt_endian.h"
 
-pthread_mutex_t cond_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
-
-
 #define	CTRL_DEV	"/dev/ublk-control"
 #define CTRL_CMD_HAS_DATA	1
 #define CTRL_CMD_HAS_BUF	2
@@ -609,9 +605,9 @@ static inline int ublksrv_queue_io_cmd(struct _ublksrv_queue *q,
 	io->flags = 0;
 
     if(atomic_fetch_sub(&q->tgt_io_inflight,1) == 1) {
-        pthread_mutex_lock(&cond_mutex);
-        pthread_cond_signal(&cond);
-        pthread_mutex_unlock(&cond_mutex);
+        pthread_mutex_lock(&q->cond_mutex);
+        pthread_cond_signal(&q->cond);
+        pthread_mutex_unlock(&q->cond_mutex);
     }
         pthread_mutex_unlock(&q->lock);
 
@@ -750,8 +746,10 @@ skip_alloc_buf:
 	ublksrv_submit_fetch_commands(q);
 
 atomic_init(&q->tgt_io_inflight,0);
-
+pthread_mutex_init(&q->cond_mutex, NULL);
+pthread_cond_init(&q->cond, NULL);
 pthread_mutex_init(&q->lock,NULL);
+
 	return (struct ublksrv_queue *)q;
  fail:
 	printf("ublk dev %d queue %d failed",
@@ -1040,11 +1038,11 @@ int ublksrv_process_io(const struct ublksrv_queue *tq)
 
 
 
-    pthread_mutex_lock(&cond_mutex);
+    pthread_mutex_lock(&q->cond_mutex);
     while(atomic_load(&q->tgt_io_inflight)>0) {
-        pthread_cond_wait(&cond,&cond_mutex);
+        pthread_cond_wait(&q->cond,&q->cond_mutex);
     }
-    pthread_mutex_unlock(&cond_mutex);
+    pthread_mutex_unlock(&q->cond_mutex);
 
    ret = io_uring_submit_and_wait_timeout(&q->ring, &cqe, 1, tsp, NULL);
 
