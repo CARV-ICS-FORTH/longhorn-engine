@@ -22,12 +22,6 @@ import (
 )
 
 const (
-	frontendName = "ublk"
-
-	SocketDirectory = "/var/run"
-	DevPath         = "/dev/longhorn/"
-	qdepth          = 32
-
 	LONGHORN_CMD_TYPE_READ = iota
 	LONGHORN_CMD_TYPE_WRITE
 	LONGHORN_CMD_TYPE_RESPONSE
@@ -36,6 +30,11 @@ const (
 	LONGHORN_CMD_TYPE_CLOSE
 	LONGHORN_CMD_TYPE_PING
 	LONGHORN_CMD_TYPE_UNMAP
+	frontendName = "ublk"
+
+	SocketDirectory = "/var/run"
+	DevPath         = "/dev/longhorn/"
+	qdepth          = 32
 )
 
 type newServer struct {
@@ -219,17 +218,20 @@ func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q
 		Data:         buf,
 	}
 
+	//fmt.Println("onRequestAsync: opType:", opType, "dataPtr:", dataPtr, "dataLen:", dataLen, "q:", q, "data:", buf)
 	go func(msgObj *dataconn.Message, opType C.int, dataPtr unsafe.Pointer, dataLen C.size_t, q *C.struct_ublksrv_queue, data *C.struct_ublk_io_data) {
 
 		dataconn.Requests <- msgObj
 		<-msgObj.Complete
 		if opType == LONGHORN_CMD_TYPE_READ {
+			//fmt.Println("Read request completed, copying data: ", msgObj.Data)
 			dst := unsafe.Slice((*byte)(dataPtr), dataLen)
 			copy(dst, msgObj.Data)
 		}
 		nrSectors := C.get_nr_sectors(data.iod)
 		C.ublksrv_complete_io(q, C.uint(data.tag), C.int(nrSectors<<9))
 	}(&EngineMsg, opType, dataPtr, dataLen, q, data)
+
 }
 
 //export notifyShutdown

@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	FrontendthreadCount = 128
+	FrontendthreadCount = 512
 )
 
 var Requests = make(chan *Message, 1024)

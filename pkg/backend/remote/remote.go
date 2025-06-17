@@ -26,7 +26,7 @@ const (
 	// NOT mark a replica as ERR if it fails to receive a response within PingInterval. See monitorPing for details.
 	PingInterval = 2 * time.Second
 
-	NumberOfConnections = 2
+	NumberOfConnections = 6
 )
 
 func New() types.BackendFactory {

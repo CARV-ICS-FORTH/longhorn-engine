@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	threadCount = 32
+	threadCount = 256
 )
 
 type Server struct {
@@ -25,8 +25,8 @@ func NewServer(conn net.Conn, data types.DataProcessor) *Server {
 	//init theads
 	server := &Server{
 		wire:      NewWire(conn),
-		requests:  make(chan *Message, 1024),
-		responses: make(chan *Message, 1024),
+		requests:  make(chan *Message, 4096),
+		responses: make(chan *Message, 4096),
 		done:      make(chan struct{}, 5),
 		data:      data,
 	}

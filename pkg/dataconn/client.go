@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	queueLength = 4196
+	queueLength = 4096
 )
 
 // Client replica client
@@ -18,7 +18,6 @@ type Client struct {
 	requests       chan *Message
 	send           chan *Message
 	responses      chan *Message
-	seq            uint32
 	messages       [queueLength]*Message
 	SeqChan        chan uint32
 	wires          []*Wire
@@ -36,10 +35,10 @@ func NewClient(conns []net.Conn, sharedTimeouts types.SharedTimeouts) *Client {
 	c := &Client{
 		wires:          wires,
 		peerAddr:       conns[0].RemoteAddr().String(),
-		end:            make(chan struct{}, 1024),
-		requests:       make(chan *Message, 1024),
-		send:           make(chan *Message, 1024),
-		responses:      make(chan *Message, 1024),
+		end:            make(chan struct{}, 4096),
+		requests:       make(chan *Message, 4096),
+		send:           make(chan *Message, 4096),
+		responses:      make(chan *Message, 4096),
 		messages:       [queueLength]*Message{},
 		SeqChan:        make(chan uint32, queueLength),
 		sharedTimeouts: sharedTimeouts,
@@ -123,11 +122,6 @@ func (c *Client) Close() {
 		wire.Close()
 	}
 	c.end <- struct{}{}
-}
-
-func (c *Client) nextSeq() uint32 {
-	c.seq++
-	return c.seq
 }
 
 func (c *Client) replyError(req *Message, err error) {

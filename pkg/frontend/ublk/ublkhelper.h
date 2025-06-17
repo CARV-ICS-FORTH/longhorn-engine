@@ -9,7 +9,7 @@
 #include <liburing.h>
  #include <stdatomic.h>
 
-#define	DEF_QD		128
+#define	DEF_QD		256
 #define	DEF_NR_HW_QUEUES 6
 #define	DEF_BUF_SIZE	(512 << 10)
 
