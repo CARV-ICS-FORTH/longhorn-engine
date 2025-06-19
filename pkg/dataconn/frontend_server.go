@@ -5,38 +5,35 @@ import (
 	"github.com/longhorn/longhorn-engine/pkg/types"
 )
 
-const (
-	FrontendthreadCount = 512
-)
-
-var Requests = make(chan *Message, 1024)
+var Requests = make(chan *Message, 4096)
 
 type FrontendServer struct {
 	data types.DataProcessor
 }
 
 func NewFrontendServer(data types.DataProcessor) *FrontendServer {
-	server := &FrontendServer{
+	return &FrontendServer{
 		data: data,
 	}
-	for i := 0; i < FrontendthreadCount; i++ {
-		go func(s *FrontendServer) {
-			for {
-				msg := <-Requests
-				switch msg.Type {
-				case TypeRead:
-					s.handleRead(msg)
-				case TypeWrite:
-					s.handleWrite(msg)
-				case TypeUnmap:
-					s.handleUnmap(msg)
-				case TypePing:
-					s.handlePing(msg)
-				}
-			}
-		}(server)
+}
+
+func (s *FrontendServer) Handle() {
+	for {
+		msg := <-Requests
+		switch msg.Type {
+		case TypeRead:
+			go s.handleRead(msg)
+		case TypeWrite:
+			go s.handleWrite(msg)
+		case TypeUnmap:
+			go s.handleUnmap(msg)
+		case TypePing:
+			go s.handlePing(msg)
+		default:
+			fmt.Printf("Unknown message type: %d\n", msg.Type)
+			msg.Complete <- struct{}{}
+		}
 	}
-	return server
 }
 
 func (s *FrontendServer) handleRead(msg *Message) {

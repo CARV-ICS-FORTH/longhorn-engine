@@ -74,7 +74,11 @@ func (u *Ublk) Init(name string, size, sectorSize int64) error {
 
 func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 
-	dataconn.NewFrontendServer(NewDataProcessorWrapper(rwu))
+	go func() {
+		server := dataconn.NewFrontendServer(NewDataProcessorWrapper(rwu))
+		server.Handle()
+
+	}()
 	logrus.Info("New frontend server established")
 
 	err := os.MkdirAll("/tmp/ublksrvd", 0755)
