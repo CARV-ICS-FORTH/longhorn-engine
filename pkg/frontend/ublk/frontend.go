@@ -35,6 +35,7 @@ const (
 	SocketDirectory = "/var/run"
 	DevPath         = "/dev/longhorn/"
 	qdepth          = 32
+	chanSize        = 4096
 )
 
 type newServer struct {
@@ -42,6 +43,7 @@ type newServer struct {
 }
 
 var Done = make(chan struct{})
+var msgChan = make(chan *dataconn.Message, 4096)
 
 type Ublk struct {
 	Volume     string
@@ -79,7 +81,19 @@ func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 		server.Handle()
 
 	}()
-	logrus.Info("New frontend server established")
+
+	for i := range chanSize {
+		msg := dataconn.Message{
+			Complete:     make(chan struct{}, 1),
+			MagicVersion: dataconn.MagicVersion,
+			Seq:          uint32(i),
+			Type:         uint32(100),
+			Offset:       int64(0),
+			Size:         uint32(0),
+			Data:         make([]byte, 4096),
+		}
+		msgChan <- &msg
+	}
 
 	err := os.MkdirAll("/tmp/ublksrvd", 0755)
 	if err != nil {
@@ -206,20 +220,16 @@ func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q
 
 	dataPtr := iovecs[1].iov_base
 	dataLen := iovecs[1].iov_len
-	var buf []byte
+
+	EngineMsg := <-msgChan
+
+	EngineMsg.Size = uint32(req.size)
+	EngineMsg.Seq = uint32(C.int(req.seq))
+	EngineMsg.Type = uint32(opType)
+	EngineMsg.Offset = int64(req.offset)
+
 	if opType == LONGHORN_CMD_TYPE_WRITE {
-		buf = unsafe.Slice((*byte)(dataPtr), dataLen)
-	} else {
-		buf = make([]byte, dataLen)
-	}
-	EngineMsg := dataconn.Message{
-		Complete:     make(chan struct{}),
-		MagicVersion: dataconn.MagicVersion,
-		Seq:          uint32(C.int(req.seq)),
-		Type:         uint32(opType),
-		Offset:       int64(req.offset),
-		Size:         uint32(req.size),
-		Data:         buf,
+		EngineMsg.Data = unsafe.Slice((*byte)(dataPtr), dataLen)
 	}
 
 	//fmt.Println("onRequestAsync: opType:", opType, "dataPtr:", dataPtr, "dataLen:", dataLen, "q:", q, "data:", buf)
@@ -232,9 +242,11 @@ func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q
 			dst := unsafe.Slice((*byte)(dataPtr), dataLen)
 			copy(dst, msgObj.Data)
 		}
+
 		nrSectors := C.get_nr_sectors(data.iod)
 		C.ublksrv_complete_io(q, C.uint(data.tag), C.int(nrSectors<<9))
-	}(&EngineMsg, opType, dataPtr, dataLen, q, data)
+		msgChan <- msgObj
+	}(EngineMsg, opType, dataPtr, dataLen, q, data)
 
 }
 
