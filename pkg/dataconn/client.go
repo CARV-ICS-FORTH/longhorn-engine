@@ -43,6 +43,18 @@ func NewClient(conns []net.Conn, sharedTimeouts types.SharedTimeouts) *Client {
 		SeqChan:        make(chan uint32, queueLength),
 		sharedTimeouts: sharedTimeouts,
 	}
+	for i := 0; i < queueLength; i++ {
+		c.messages[i] = &Message{
+			Complete:     make(chan struct{}),
+			MagicVersion: MagicVersion,
+			Seq:          uint32(i),
+			Type:         0,
+			Offset:       0,
+			Size:         0,
+			Data:         make([]byte, 4096),
+			transportErr: nil,
+		}
+	}
 	for i := uint32(0); i < queueLength; i++ {
 		c.SeqChan <- i
 	}
@@ -85,19 +97,16 @@ func (c *Client) Ping() error {
 }
 
 func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (int, error) {
-	msg := Message{
-		Complete: make(chan struct{}, 1),
-		Type:     op,
-		Offset:   offset,
-		Size:     length,
-		Data:     nil,
-	}
-
+	seq := <-c.SeqChan
+	msg := c.messages[seq]
 	if op == TypeWrite {
 		msg.Data = buf
 	}
+	msg.Type = op
+	msg.Offset = offset
+	msg.Size = length
 
-	c.handleRequest(&msg)
+	c.send <- msg
 
 	<-msg.Complete
 	// Only copy the message if a read is requested
@@ -114,6 +123,7 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 	c.SeqChan <- msg.Seq
 
 	return int(msg.Size), nil
+	//return len(buf), nil
 }
 
 // Close replica client
@@ -140,12 +150,12 @@ func (c *Client) handleRequest(req *Message) {
 }
 
 func (c *Client) handleResponse(resp *Message) {
-	req := c.messages[resp.Seq]
-
-	req.Type = resp.Type
-	req.Size = resp.Size
-	req.Data = resp.Data
-	req.Complete <- struct{}{}
+	//req := c.messages[resp.Seq]
+	//
+	//req.Type = resp.Type
+	//req.Size = resp.Size
+	//req.Data = resp.Data
+	//req.Complete <- struct{}{}
 
 }
 

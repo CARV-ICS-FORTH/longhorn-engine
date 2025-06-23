@@ -37,7 +37,7 @@ func (s *FrontendServer) Handle() {
 }
 
 func (s *FrontendServer) handleRead(msg *Message) {
-	msg.Data = make([]byte, msg.Size)
+	//msg.Data = make([]byte, msg.Size)
 	_, err := s.data.ReadAt(msg.Data, msg.Offset)
 	if err != nil {
 		fmt.Println(err)
