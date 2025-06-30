@@ -81,7 +81,6 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) handleRead(msg *Message) {
-	msg.Data = make([]byte, msg.Size)
 	c, err := s.data.ReadAt(msg.Data, msg.Offset)
 	s.pushResponse(c, msg, err)
 }

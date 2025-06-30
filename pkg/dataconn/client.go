@@ -150,12 +150,12 @@ func (c *Client) handleRequest(req *Message) {
 }
 
 func (c *Client) handleResponse(resp *Message) {
-	//req := c.messages[resp.Seq]
-	//
-	//req.Type = resp.Type
-	//req.Size = resp.Size
-	//req.Data = resp.Data
-	//req.Complete <- struct{}{}
+	req := c.messages[resp.Seq]
+
+	req.Type = resp.Type
+	req.Size = resp.Size
+	req.Data = resp.Data
+	req.Complete <- struct{}{}
 
 }
 
