@@ -20,16 +20,16 @@ type Client struct {
 	responses      chan *Message
 	messages       [queueLength]*Message
 	SeqChan        chan uint32
-	wires          []*Wire
+	wires          []*CWire
 	peerAddr       string
 	sharedTimeouts types.SharedTimeouts
 }
 
 // NewClient replica client
 func NewClient(conns []net.Conn, sharedTimeouts types.SharedTimeouts) *Client {
-	var wires []*Wire
+	var wires []*CWire
 	for _, conn := range conns {
-		wires = append(wires, NewWire(conn))
+		wires = append(wires, NewCWire(conn))
 	}
 
 	c := &Client{
@@ -129,7 +129,7 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 // Close replica client
 func (c *Client) Close() {
 	for _, wire := range c.wires {
-		wire.Close()
+		wire.CClose()
 	}
 	c.end <- struct{}{}
 }
@@ -150,20 +150,16 @@ func (c *Client) handleRequest(req *Message) {
 }
 
 func (c *Client) handleResponse(resp *Message) {
-	req := c.messages[resp.Seq]
 
-	req.Type = resp.Type
-	req.Size = resp.Size
-	req.Data = resp.Data
-	req.Complete <- struct{}{}
+	resp.Complete <- struct{}{}
 
 }
 
 func (c *Client) write() {
 	for _, wire := range c.wires {
-		go func(w *Wire) {
+		go func(w *CWire) {
 			for msg := range c.send {
-				if err := w.Write(msg); err != nil {
+				if err := w.CWrite(msg); err != nil {
 					c.responses <- &Message{
 						transportErr: err,
 					}
@@ -175,9 +171,9 @@ func (c *Client) write() {
 
 func (c *Client) read() {
 	for _, wire := range c.wires {
-		go func(w *Wire) {
+		go func(w *CWire) {
 			for {
-				msg, err := w.Read()
+				msg, err := w.CRead(c)
 				if err != nil {
 					logrus.WithError(err).Errorf("Error reading from wire %v", c.peerAddr)
 					c.responses <- &Message{

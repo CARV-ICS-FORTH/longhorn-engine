@@ -9,7 +9,7 @@ import (
 	"unsafe"
 )
 
-type Wire struct {
+type CWire struct {
 	conn        net.Conn
 	writer      *bufio.Writer
 	reader      io.Reader
@@ -17,8 +17,8 @@ type Wire struct {
 	readHeader  []byte
 }
 
-func NewWire(conn net.Conn) *Wire {
-	return &Wire{
+func NewCWire(conn net.Conn) *CWire {
+	return &CWire{
 		conn:        conn,
 		writer:      bufio.NewWriterSize(conn, writeBufferSize),
 		reader:      bufio.NewReaderSize(conn, readBufferSize),
@@ -27,7 +27,7 @@ func NewWire(conn net.Conn) *Wire {
 	}
 }
 
-func (w *Wire) Write(msg *Message) error {
+func (w *CWire) CWrite(msg *Message) error {
 	offset := 0
 
 	binary.LittleEndian.PutUint16(w.writeHeader[offset:], msg.MagicVersion)
@@ -67,11 +67,7 @@ func (w *Wire) Write(msg *Message) error {
 	return w.writer.Flush()
 }
 
-func (w *Wire) Read() (*Message, error) {
-	var (
-		msg    Message
-		length uint32
-	)
+func (w *CWire) CRead(c *Client) (*Message, error) {
 
 	offset := 0
 
@@ -79,14 +75,16 @@ func (w *Wire) Read() (*Message, error) {
 		return nil, err
 	}
 
-	msg.MagicVersion = binary.LittleEndian.Uint16(w.readHeader[offset:])
-	if msg.MagicVersion != MagicVersion {
-		return nil, fmt.Errorf("wrong API version received: 0x%x", msg.MagicVersion)
+	Mg := binary.LittleEndian.Uint16(w.readHeader[offset:])
+	if Mg != MagicVersion {
+		return nil, fmt.Errorf("wrong API version received: 0x%x", Mg)
 	}
-	offset += int(unsafe.Sizeof(msg.MagicVersion))
+	offset += int(unsafe.Sizeof(Mg))
 
-	msg.Seq = binary.LittleEndian.Uint32(w.readHeader[offset:])
-	offset += int(unsafe.Sizeof(msg.Seq))
+	Seq := binary.LittleEndian.Uint32(w.readHeader[offset:])
+	offset += int(unsafe.Sizeof(Seq))
+
+	msg := c.messages[Seq]
 
 	msg.Type = binary.LittleEndian.Uint32(w.readHeader[offset:])
 	offset += int(unsafe.Sizeof(msg.Type))
@@ -97,22 +95,21 @@ func (w *Wire) Read() (*Message, error) {
 	msg.Size = binary.LittleEndian.Uint32(w.readHeader[offset:])
 	offset += int(unsafe.Sizeof(msg.Size))
 
-	length = binary.LittleEndian.Uint32(w.readHeader[offset:])
+	length := binary.LittleEndian.Uint32(w.readHeader[offset:])
 	if length > 0 {
-		msg.Data = make([]byte, length)
 		if _, err := io.ReadFull(w.reader, msg.Data); err != nil {
 			return nil, err
 		}
 	}
 
-	return &msg, nil
+	return msg, nil
 }
 
-func (w *Wire) Close() error {
+func (w *CWire) CClose() error {
 	return w.conn.Close()
 }
 
-func getRequestHeaderSize() int {
+func CgetRequestHeaderSize() int {
 	var msg Message
 
 	return int(unsafe.Sizeof(msg.MagicVersion)) +

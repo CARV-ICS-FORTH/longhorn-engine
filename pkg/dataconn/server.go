@@ -10,19 +10,35 @@ import (
 )
 
 type Server struct {
-	wire      *Wire
+	wire      *SWire
 	responses chan *Message
 	done      chan struct{}
 	data      types.DataProcessor
+	messages  chan *Message
 }
 
 func NewServer(conn net.Conn, data types.DataProcessor) *Server {
-	return &Server{
-		wire:      NewWire(conn),
+	server := &Server{
+		wire:      NewSWire(conn),
 		responses: make(chan *Message, 4096),
 		done:      make(chan struct{}, 5),
 		data:      data,
 	}
+	server.messages = make(chan *Message, 4096)
+	for i := 0; i < 4096; i++ {
+		server.messages <- &Message{
+			Complete:     make(chan struct{}),
+			MagicVersion: MagicVersion,
+			Seq:          0,
+			Type:         0,
+			Offset:       0,
+			Size:         0,
+			Data:         make([]byte, 4096),
+			transportErr: nil,
+		}
+	}
+
+	return server
 }
 
 func (s *Server) Handle() error {
@@ -34,7 +50,7 @@ func (s *Server) Handle() error {
 }
 
 func (s *Server) readFromWire(ret chan<- error) {
-	msg, err := s.wire.Read()
+	msg, err := s.wire.SRead(s)
 	if err == io.EOF {
 		ret <- err
 		return
@@ -125,15 +141,16 @@ func (s *Server) write() {
 	for {
 		select {
 		case msg := <-s.responses:
-			if err := s.wire.Write(msg); err != nil {
+			if err := s.wire.SWrite(msg); err != nil {
 				logrus.WithError(err).Error("Failed to write")
 			}
+			s.messages <- msg
 		case <-s.done:
 			msg := &Message{
 				Type: TypeClose,
 			}
 			//Best effort to notify client to close connection
-			if err := s.wire.Write(msg); err != nil {
+			if err := s.wire.SWrite(msg); err != nil {
 				logrus.WithError(err).Warn("Failed to write")
 			}
 		}
