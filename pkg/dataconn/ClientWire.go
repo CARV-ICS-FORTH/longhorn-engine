@@ -27,7 +27,7 @@ func NewCWire(conn net.Conn) *CWire {
 	}
 }
 
-func (w *CWire) CWrite(msg *Message) error {
+func (w *CWire) CWrite(msg *Message, c *Client) error {
 	offset := 0
 
 	binary.LittleEndian.PutUint16(w.writeHeader[offset:], msg.MagicVersion)
@@ -45,15 +45,13 @@ func (w *CWire) CWrite(msg *Message) error {
 	binary.LittleEndian.PutUint32(w.writeHeader[offset:], msg.Size)
 	offset += int(unsafe.Sizeof(msg.Size))
 
-	binary.LittleEndian.PutUint32(w.writeHeader[offset:], uint32(len(msg.Data)))
-
-	if msg.Type == TypeWrite || (msg.Type == TypeResponse && msg.Data != nil) {
-		binary.LittleEndian.PutUint32(w.writeHeader[offset:], uint32(len(msg.Data)))
+	if msg.Type == TypeWrite {
+		binary.LittleEndian.PutUint32(w.writeHeader[offset:], uint32(len(c.writeBuffs[msg.Seq])))
 		if _, err := w.writer.Write(w.writeHeader); err != nil {
 			return err
 		}
 
-		if _, err := w.writer.Write(msg.Data); err != nil {
+		if _, err := w.writer.Write(c.writeBuffs[msg.Seq]); err != nil {
 			return err
 		}
 	} else {
@@ -64,13 +62,13 @@ func (w *CWire) CWrite(msg *Message) error {
 
 	}
 
+	//fmt.Println("Write Request : Seq : ", msg.Seq, " Type : ", msg.Type, " Offset : ", msg.Offset, " Size : ", msg.Size)
 	return w.writer.Flush()
 }
 
 func (w *CWire) CRead(c *Client) (*Message, error) {
 
 	offset := 0
-
 	if _, err := io.ReadFull(w.reader, w.readHeader); err != nil {
 		return nil, err
 	}
@@ -97,10 +95,13 @@ func (w *CWire) CRead(c *Client) (*Message, error) {
 
 	length := binary.LittleEndian.Uint32(w.readHeader[offset:])
 	if length > 0 {
+		msg.Data = msg.Data[:length]
 		if _, err := io.ReadFull(w.reader, msg.Data); err != nil {
 			return nil, err
 		}
 	}
+
+	//fmt.Println("Read Reply : Seq : ", msg.Seq, " Type : ", msg.Type, " Offset : ", msg.Offset, " Size : ", msg.Size)
 
 	return msg, nil
 }

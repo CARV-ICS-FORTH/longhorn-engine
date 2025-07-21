@@ -43,7 +43,7 @@ type newServer struct {
 }
 
 var Done = make(chan struct{})
-var msgChan = make(chan *dataconn.Message, 4096)
+var msgChan = make(chan *dataconn.FrMessage, 4096)
 
 type Ublk struct {
 	Volume     string
@@ -83,14 +83,15 @@ func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 	}()
 
 	for i := range chanSize {
-		msg := dataconn.Message{
+		msg := dataconn.FrMessage{
 			Complete:     make(chan struct{}, 1),
 			MagicVersion: dataconn.MagicVersion,
 			Seq:          uint32(i),
 			Type:         uint32(100),
 			Offset:       int64(0),
 			Size:         uint32(0),
-			Data:         make([]byte, 4096),
+			RData:        make([]byte, dataconn.Blocks*1024),
+			WData:        nil,
 		}
 		msgChan <- &msg
 	}
@@ -229,18 +230,21 @@ func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q
 	EngineMsg.Offset = int64(req.offset)
 
 	if opType == LONGHORN_CMD_TYPE_WRITE {
-		EngineMsg.Data = unsafe.Slice((*byte)(dataPtr), dataLen)
+		EngineMsg.WData = unsafe.Slice((*byte)(dataPtr), dataLen)
 	}
 
 	//fmt.Println("onRequestAsync: opType:", opType, "dataPtr:", dataPtr, "dataLen:", dataLen, "q:", q, "data:", buf)
-	go func(msgObj *dataconn.Message, opType C.int, dataPtr unsafe.Pointer, dataLen C.size_t, q *C.struct_ublksrv_queue, data *C.struct_ublk_io_data) {
+	go func(msgObj *dataconn.FrMessage, opType C.int, dataPtr unsafe.Pointer, dataLen C.size_t, q *C.struct_ublksrv_queue, data *C.struct_ublk_io_data) {
+		//fmt.Println("Request : Seq : ", msgObj.Seq, " Type : ", msgObj.Type, " Offset : ", msgObj.Offset, " Size : ", msgObj.Size)
 
 		dataconn.Requests <- msgObj
 		<-msgObj.Complete
+		//fmt.Println("Reply at Request : Seq : ", msgObj.Seq, " Type : ", msgObj.Type, " Offset : ", msgObj.Offset, " Size : ", msgObj.Size)
+
 		if opType == LONGHORN_CMD_TYPE_READ {
 			//fmt.Println("Read request completed, copying data: ", msgObj.Data)
 			dst := unsafe.Slice((*byte)(dataPtr), dataLen)
-			copy(dst, msgObj.Data)
+			copy(dst, msgObj.RData)
 		}
 
 		nrSectors := C.get_nr_sectors(data.iod)

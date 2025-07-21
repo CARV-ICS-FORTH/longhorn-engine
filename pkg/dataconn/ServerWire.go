@@ -45,14 +45,12 @@ func (w *SWire) SWrite(msg *Message) error {
 	binary.LittleEndian.PutUint32(w.writeHeader[offset:], msg.Size)
 	offset += int(unsafe.Sizeof(msg.Size))
 
-	binary.LittleEndian.PutUint32(w.writeHeader[offset:], uint32(len(msg.Data)))
-
-	if msg.Type == TypeWrite || (msg.Type == TypeResponse && msg.Data != nil) {
+	if msg.Type == TypeRead {
+		//fmt.Println("Writing length ", uint32(len(msg.Data)))
 		binary.LittleEndian.PutUint32(w.writeHeader[offset:], uint32(len(msg.Data)))
 		if _, err := w.writer.Write(w.writeHeader); err != nil {
 			return err
 		}
-
 		if _, err := w.writer.Write(msg.Data); err != nil {
 			return err
 		}
@@ -64,6 +62,7 @@ func (w *SWire) SWrite(msg *Message) error {
 
 	}
 
+	//fmt.Println("Write Reply : Seq : ", msg.Seq, " Type : ", msg.Type, " Offset : ", msg.Offset, " Size : ", msg.Size)
 	return w.writer.Flush()
 }
 
@@ -96,15 +95,12 @@ func (w *SWire) SRead(s *Server) (*Message, error) {
 
 	length := binary.LittleEndian.Uint32(w.readHeader[offset:])
 	if length > 0 {
-		if msg.Data == nil || len(msg.Data) < int(length) {
-			msg.Data = make([]byte, length)
-		} else {
-			msg.Data = msg.Data[:length]
-		}
+		msg.Data = msg.Data[:length]
 		if _, err := io.ReadFull(w.reader, msg.Data); err != nil {
 			return nil, err
 		}
 	}
+	//fmt.Println("Read Request : Seq : ", msg.Seq, " Type : ", msg.Type, " Offset : ", msg.Offset, " Size : ", msg.Size)
 
 	return msg, nil
 }

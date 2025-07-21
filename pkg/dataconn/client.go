@@ -10,6 +10,7 @@ import (
 
 const (
 	queueLength = 4096
+	Blocks      = 512
 )
 
 // Client replica client
@@ -19,6 +20,7 @@ type Client struct {
 	send           chan *Message
 	responses      chan *Message
 	messages       [queueLength]*Message
+	writeBuffs     [queueLength][]byte
 	SeqChan        chan uint32
 	wires          []*CWire
 	peerAddr       string
@@ -51,7 +53,7 @@ func NewClient(conns []net.Conn, sharedTimeouts types.SharedTimeouts) *Client {
 			Type:         0,
 			Offset:       0,
 			Size:         0,
-			Data:         make([]byte, 4096),
+			Data:         make([]byte, Blocks*1024),
 			transportErr: nil,
 		}
 	}
@@ -100,7 +102,8 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 	seq := <-c.SeqChan
 	msg := c.messages[seq]
 	if op == TypeWrite {
-		msg.Data = buf
+		c.writeBuffs[seq] = buf
+		//msg.Data = buf
 	}
 	msg.Type = op
 	msg.Offset = offset
@@ -110,7 +113,7 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 
 	<-msg.Complete
 	// Only copy the message if a read is requested
-	if op == TypeRead && (msg.Type == TypeResponse || msg.Type == TypeEOF) {
+	if op == TypeRead { // && (msg.Type == TypeResponse || msg.Type == TypeEOF) {
 		copy(buf, msg.Data)
 	}
 	if msg.Type == TypeError {
@@ -159,7 +162,7 @@ func (c *Client) write() {
 	for _, wire := range c.wires {
 		go func(w *CWire) {
 			for msg := range c.send {
-				if err := w.CWrite(msg); err != nil {
+				if err := w.CWrite(msg, c); err != nil {
 					c.responses <- &Message{
 						transportErr: err,
 					}

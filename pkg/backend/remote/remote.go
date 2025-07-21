@@ -433,7 +433,7 @@ func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.D
 		return nil, err
 	}
 
-	go r.monitorPing(dataConnClient)
+	//	go r.monitorPing(dataConnClient)
 
 	return r, nil
 }

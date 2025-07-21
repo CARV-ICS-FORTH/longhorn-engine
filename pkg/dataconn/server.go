@@ -33,7 +33,7 @@ func NewServer(conn net.Conn, data types.DataProcessor) *Server {
 			Type:         0,
 			Offset:       0,
 			Size:         0,
-			Data:         make([]byte, 4096),
+			Data:         make([]byte, Blocks*1024),
 			transportErr: nil,
 		}
 	}
@@ -97,6 +97,7 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) handleRead(msg *Message) {
+	msg.Data = msg.Data[:msg.Size]
 	c, err := s.data.ReadAt(msg.Data, msg.Offset)
 	s.pushResponse(c, msg, err)
 }
@@ -117,21 +118,20 @@ func (s *Server) handlePing(msg *Message) {
 }
 
 func (s *Server) pushResponse(count int, msg *Message, err error) {
-	msg.MagicVersion = MagicVersion
-	msg.Size = uint32(len(msg.Data))
+
 	if msg.Type == TypeWrite || msg.Type == TypeUnmap {
-		msg.Data = nil
 		msg.Size = uint32(count)
+	} else {
+		msg.Size = uint32(len(msg.Data))
 	}
 
-	msg.Type = TypeResponse
 	if err == io.EOF {
 		msg.Type = TypeEOF
 		msg.Data = msg.Data[:count]
 		msg.Size = uint32(len(msg.Data))
 	} else if err != nil {
 		msg.Type = TypeError
-		msg.Data = []byte(err.Error())
+		//msg.Data = []byte(err.Error())
 		msg.Size = uint32(len(msg.Data))
 	}
 	s.responses <- msg
