@@ -9,27 +9,28 @@ import (
 	"github.com/longhorn/longhorn-engine/pkg/types"
 )
 
+var ServerMessages [queueLength]*Message
+
 type Server struct {
 	wire      *SWire
 	responses chan *Message
 	done      chan struct{}
 	data      types.DataProcessor
-	messages  chan *Message
 }
 
 func NewServer(conn net.Conn, data types.DataProcessor) *Server {
 	server := &Server{
 		wire:      NewSWire(conn),
-		responses: make(chan *Message, 4096),
+		responses: make(chan *Message, queueLength),
 		done:      make(chan struct{}, 5),
 		data:      data,
 	}
-	server.messages = make(chan *Message, 4096)
-	for i := 0; i < 4096; i++ {
-		server.messages <- &Message{
+
+	for i := 0; i < queueLength; i++ {
+		ServerMessages[i] = &Message{
 			Complete:     make(chan struct{}),
 			MagicVersion: MagicVersion,
-			Seq:          0,
+			Seq:          uint32(i),
 			Type:         0,
 			Offset:       0,
 			Size:         0,
@@ -127,7 +128,7 @@ func (s *Server) pushResponse(count int, msg *Message, err error) {
 
 	if err == io.EOF {
 		msg.Type = TypeEOF
-		msg.Data = msg.Data[:count]
+		//msg.Data = msg.Data[:count]
 		msg.Size = uint32(len(msg.Data))
 	} else if err != nil {
 		msg.Type = TypeError
@@ -144,7 +145,6 @@ func (s *Server) write() {
 			if err := s.wire.SWrite(msg); err != nil {
 				logrus.WithError(err).Error("Failed to write")
 			}
-			s.messages <- msg
 		case <-s.done:
 			msg := &Message{
 				Type: TypeClose,

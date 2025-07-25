@@ -67,7 +67,6 @@ func (w *SWire) SWrite(msg *Message) error {
 }
 
 func (w *SWire) SRead(s *Server) (*Message, error) {
-	msg := <-s.messages
 
 	offset := 0
 
@@ -75,15 +74,16 @@ func (w *SWire) SRead(s *Server) (*Message, error) {
 		return nil, err
 	}
 
-	msg.MagicVersion = binary.LittleEndian.Uint16(w.readHeader[offset:])
-	if msg.MagicVersion != MagicVersion {
-		return nil, fmt.Errorf("wrong API version received: 0x%x", msg.MagicVersion)
+	Mg := binary.LittleEndian.Uint16(w.readHeader[offset:])
+	if Mg != MagicVersion {
+		return nil, fmt.Errorf("wrong API version received: 0x%x", Mg)
 	}
-	offset += int(unsafe.Sizeof(msg.MagicVersion))
+	offset += int(unsafe.Sizeof(Mg))
 
-	msg.Seq = binary.LittleEndian.Uint32(w.readHeader[offset:])
-	offset += int(unsafe.Sizeof(msg.Seq))
+	seq := binary.LittleEndian.Uint32(w.readHeader[offset:])
+	offset += int(unsafe.Sizeof(seq))
 
+	msg := ServerMessages[seq]
 	msg.Type = binary.LittleEndian.Uint32(w.readHeader[offset:])
 	offset += int(unsafe.Sizeof(msg.Type))
 

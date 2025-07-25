@@ -35,7 +35,7 @@ const (
 	SocketDirectory = "/var/run"
 	DevPath         = "/dev/longhorn/"
 	qdepth          = 32
-	chanSize        = 4096
+	chanSize        = 512
 )
 
 type newServer struct {

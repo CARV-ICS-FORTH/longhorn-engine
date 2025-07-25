@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	queueLength = 4096
+	queueLength = 512
 	Blocks      = 512
 )
 
