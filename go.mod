@@ -3,8 +3,7 @@ module github.com/longhorn/longhorn-engine
 go 1.22.2
 
 require (
-	github.com/Kampadais/dbs v0.0.0-20241023125942-2238e6b9b079
-	github.com/Kampadais/giouring v0.0.0-20250403123126-e41c674f4f95
+	github.com/Kampadais/dbs v0.0.0-20250730145610-cb35aabe9d98
 	github.com/docker/go-units v0.5.0
 	github.com/gofrs/flock v0.12.1
 	github.com/google/uuid v1.6.0

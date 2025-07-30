@@ -11,10 +11,8 @@ github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.4.1/go.mod h1:ap1dmS6vQK
 github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2 h1:XHOnouVk1mxXfQidrMEnLlPk9UMeRtyBTnEFtxkV0kU=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2/go.mod h1:wP83P5OoQ5p6ip3ScPr0BAq0BvuPAvacpEuSzyouqAI=
 github.com/BurntSushi/toml v1.3.2/go.mod h1:CxXYINrC8qIiEnFrOxCa7Jy5BFHlXnUU2pbicEuybxQ=
-github.com/Kampadais/dbs v0.0.0-20241023125942-2238e6b9b079 h1:y6UKedvOGHEDgBzNrUiIjLjugyyxnYKKH/JMrfMperI=
-github.com/Kampadais/dbs v0.0.0-20241023125942-2238e6b9b079/go.mod h1:hxfzoi5p6n8GIMIbPe8YmQwgDeoJYKH49ik8mfboQZA=
-github.com/Kampadais/giouring v0.0.0-20250403123126-e41c674f4f95 h1:m98VxPlSoAMPz45DUA/uogX4GezsnyTZiQew3OYfQTs=
-github.com/Kampadais/giouring v0.0.0-20250403123126-e41c674f4f95/go.mod h1:n7kxYnt/uLWjUrUf1MTpRD8yHn5zf1CTAG6zP7O28X0=
+github.com/Kampadais/dbs v0.0.0-20250730145610-cb35aabe9d98 h1:yktt86UPhR0l07XW1Po1tAzXCoFGC3+bgjp9tQyZ2EY=
+github.com/Kampadais/dbs v0.0.0-20250730145610-cb35aabe9d98/go.mod h1:hxfzoi5p6n8GIMIbPe8YmQwgDeoJYKH49ik8mfboQZA=
 github.com/aws/aws-sdk-go v1.55.5 h1:KKUZBfBoyqy5d3swXyiC7Q76ic40rYcbqH7qjh59kzU=
 github.com/aws/aws-sdk-go v1.55.5/go.mod h1:eRwEWoyTWFMVYVQzKMNHWP5/RV4xIUGMQfXQHfHkpNU=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
