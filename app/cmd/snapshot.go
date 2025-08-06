@@ -261,7 +261,12 @@ func createSnapshot(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client: %v", err)
+		}
+	}(controllerClient)
 
 	id, err := controllerClient.VolumeSnapshot(name, labelMap, freezeFilesystem)
 	if err != nil {
@@ -282,7 +287,12 @@ func revertSnapshot(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client: %v", err)
+		}
+	}(controllerClient)
 
 	if err = controllerClient.VolumeRevert(name); err != nil {
 		return err
@@ -306,7 +316,10 @@ func rmSnapshot(c *cli.Context) error {
 	for _, name := range c.Args() {
 		if err := task.DeleteSnapshot(name); err != nil {
 			lastErr = err
-			fmt.Fprintf(os.Stderr, "Failed to delete %s: %v\n", name, err)
+			_, err := fmt.Fprintf(os.Stderr, "Failed to delete %s: %v\n", name, err)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -362,7 +375,12 @@ func lsSnapshot(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client: %v", err)
+		}
+	}(controllerClient)
 	volumeName := c.GlobalString("volume-name")
 
 	replicas, err := controllerClient.ReplicaList()
@@ -404,12 +422,21 @@ func lsSnapshot(c *cli.Context) error {
 
 	format := "%s\n"
 	tw := tabwriter.NewWriter(os.Stdout, 0, 20, 1, ' ', 0)
-	fmt.Fprintf(tw, format, "ID")
+	_, err = fmt.Fprintf(tw, format, "ID")
+	if err != nil {
+		return err
+	}
 	for _, s := range snapshots {
 		s = strings.TrimSuffix(strings.TrimPrefix(s, "volume-snap-"), ".img")
-		fmt.Fprintf(tw, format, s)
+		_, err := fmt.Fprintf(tw, format, s)
+		if err != nil {
+			return err
+		}
 	}
-	tw.Flush()
+	err = tw.Flush()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -421,7 +448,12 @@ func infoSnapshot(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client: %v", err)
+		}
+	}(controllerClient)
 
 	replicas, err := controllerClient.ReplicaList()
 	if err != nil {
@@ -463,7 +495,12 @@ func cloneSnapshot(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client: %v", err)
+		}
+	}(controllerClient)
 
 	volumeName := c.GlobalString("volume-name")
 	fromVolumeName := c.String("from-volume-name")
@@ -473,7 +510,12 @@ func cloneSnapshot(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer fromControllerClient.Close()
+	defer func(fromControllerClient *client.ControllerClient) {
+		err := fromControllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client: %v", err)
+		}
+	}(fromControllerClient)
 
 	if err := sync.CloneSnapshot(controllerClient, fromControllerClient, volumeName, fromVolumeName,
 		snapshotName, exportBackingImageIfExist, fileSyncHTTPClientTimeout, grpcTimeoutSeconds); err != nil {
@@ -487,7 +529,12 @@ func cloneSnapshotStatus(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client: %v", err)
+		}
+	}(controllerClient)
 
 	volumeName := c.GlobalString("volume-name")
 	statusMap, err := sync.CloneStatus(controllerClient, volumeName)

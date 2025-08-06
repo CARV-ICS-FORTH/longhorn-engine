@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 
+	"github.com/longhorn/longhorn-engine/pkg/controller/client"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -29,7 +30,12 @@ func rmReplica(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			logrus.Errorf("Error closing controller client: %v", err)
+		}
+	}(controllerClient)
 
 	return controllerClient.ReplicaDelete(replica)
 }

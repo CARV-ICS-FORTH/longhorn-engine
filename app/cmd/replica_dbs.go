@@ -61,7 +61,7 @@ func startReplicaDBS(c *cli.Context) error {
 	device := c.Args()[0]
 
 	initDevice := c.Bool("initDevice")
-	if initDevice == true {
+	if initDevice {
 		if err := dbs.InitDevice(device); err != nil {
 			return fmt.Errorf("failed to init device: %w", err)
 		}

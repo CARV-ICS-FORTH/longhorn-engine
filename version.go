@@ -44,7 +44,12 @@ func version(c *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		defer controllerClient.Close()
+		defer func(controllerClient *client.ControllerClient) {
+			err := controllerClient.Close()
+			if err != nil {
+				fmt.Printf("Error closing controller client %v: %v", controllerClient, err)
+			}
+		}(controllerClient)
 
 		version, err := controllerClient.VersionDetailGet()
 		if err != nil {

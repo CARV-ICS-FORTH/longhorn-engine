@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/longhorn/longhorn-engine/pkg/controller/client"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -132,7 +133,12 @@ func checkBackupStatus(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			logrus.Errorf("Error closing controller client: %v", err)
+		}
+	}(controllerClient)
 
 	replicas, err := controllerClient.ReplicaList()
 	if err != nil {
@@ -161,7 +167,10 @@ func checkBackupStatus(c *cli.Context) error {
 			}
 
 			_, err = sync.FetchBackupStatus(repClient, backupID, replica.Address)
-			repClient.Close()
+			err2 := repClient.Close()
+			if err2 != nil {
+				return err2
+			}
 			if err == nil {
 				replicaAddress = replica.Address
 				break
@@ -183,7 +192,12 @@ func checkBackupStatus(c *cli.Context) error {
 		logrus.WithError(err).Errorf("Cannot create a replica client for IP[%v]", replicaAddress)
 		return err
 	}
-	defer repClient.Close()
+	defer func(repClient *replicaClient.ReplicaClient) {
+		err := repClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing replica client %v: %v\n", replicaAddress, err)
+		}
+	}(repClient)
 
 	status, err := sync.FetchBackupStatus(repClient, backupID, replicaAddress)
 	if err != nil {

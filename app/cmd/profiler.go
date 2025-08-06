@@ -90,7 +90,12 @@ func showProfiler(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func(client *profiler.Client) {
+		err := client.Close()
+		if err != nil {
+			logrus.Errorf("Error closing controller client: %v", err)
+		}
+	}(client)
 
 	profilerAddr, err := client.ProfilerOP(opShow, 0)
 	if err != nil {
@@ -126,7 +131,12 @@ func enableProfiler(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func(client *profiler.Client) {
+		err := client.Close()
+		if err != nil {
+			logrus.Errorf("Error closing controller client: %v", err)
+		}
+	}(client)
 
 	profilerAddr, err := client.ProfilerOP(opEnable, portNumber)
 	if err != nil {
@@ -142,7 +152,12 @@ func disableProfiler(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func(client *profiler.Client) {
+		err := client.Close()
+		if err != nil {
+			logrus.Errorf("Error closing controller client: %v", err)
+		}
+	}(client)
 
 	_, err = client.ProfilerOP(opDisable, 0)
 	if err != nil {

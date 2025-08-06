@@ -118,7 +118,12 @@ func (t *Socket) startSocketServerListen(rwu types.ReaderWriterUnmapperAt) error
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	defer func(ln net.Listener) {
+		err := ln.Close()
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to close socket listener")
+		}
+	}(ln)
 
 	for {
 		conn, err := ln.Accept()
@@ -131,7 +136,12 @@ func (t *Socket) startSocketServerListen(rwu types.ReaderWriterUnmapperAt) error
 }
 
 func (t *Socket) handleServerConnection(c net.Conn, rwu types.ReaderWriterUnmapperAt) {
-	defer c.Close()
+	defer func(c net.Conn) {
+		err := c.Close()
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to close socket connection")
+		}
+	}(c)
 
 	server := dataconn.NewServer(c, NewDataProcessorWrapper(rwu))
 	logrus.Info("New data socket connection established")

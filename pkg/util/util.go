@@ -171,7 +171,7 @@ func ValidVolumeName(name string) bool {
 }
 
 func Volume2ISCSIName(name string) string {
-	return strings.Replace(name, "_", ":", -1)
+	return strings.ReplaceAll(name, "_", ":")
 }
 
 func Now() string {
@@ -243,7 +243,12 @@ func ResolveBackingFilepath(fileOrDirpath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer fileOrDir.Close()
+	defer func(fileOrDir *os.File) {
+		err := fileOrDir.Close()
+		if err != nil {
+			fmt.Printf("Error closing file %v: %v", fileOrDirpath, err)
+		}
+	}(fileOrDir)
 
 	fileOrDirInfo, err := fileOrDir.Stat()
 	if err != nil {

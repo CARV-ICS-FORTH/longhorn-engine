@@ -90,7 +90,12 @@ func (t *Task) createBackup(replicaInController *types.ControllerReplicaInfo, ba
 	if err != nil {
 		return nil, err
 	}
-	defer repClient.Close()
+	defer func(repClient *replicaClient.ReplicaClient) {
+		err := repClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing replica %v: %v", replicaInController.Address, err)
+		}
+	}(repClient)
 
 	rep, err := repClient.GetReplica()
 	if err != nil {
@@ -276,7 +281,12 @@ func (t *Task) restoreBackup(replicaInController *types.ControllerReplicaInfo, b
 	if err != nil {
 		return err
 	}
-	defer repClient.Close()
+	defer func(repClient *replicaClient.ReplicaClient) {
+		err := repClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing replica %v: %v", replicaInController.Address, err)
+		}
+	}(repClient)
 
 	if err := repClient.RestoreBackup(backup, snapshotFile, credential, concurrentLimit); err != nil {
 		return err

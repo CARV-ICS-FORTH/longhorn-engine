@@ -15,7 +15,12 @@ func GetReplicaDisksAndHead(address, volumeName, instanceName string) (map[strin
 	if err != nil {
 		return nil, "", errors.Wrapf(err, "cannot get replica client for %v", address)
 	}
-	defer repClient.Close()
+	defer func(repClient *client.ReplicaClient) {
+		err := repClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing replica client connection: %v", err)
+		}
+	}(repClient)
 
 	rep, err := repClient.GetReplica()
 	if err != nil {

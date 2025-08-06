@@ -201,7 +201,12 @@ func CreateNewSnapshotMetafile(file string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			fmt.Printf("Error closing file %v: %v", file, err)
+		}
+	}(f)
 
 	content := "{\"Parent\":\"\"}\n"
 	if _, err := f.Write([]byte(content)); err != nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/longhorn/longhorn-engine/pkg/controller/client"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -96,7 +97,12 @@ func info(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client connection: %v", err)
+		}
+	}(controllerClient)
 
 	volumeInfo, err := controllerClient.VolumeGet()
 	if err != nil {
@@ -118,7 +124,12 @@ func expand(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client connection: %v", err)
+		}
+	}(controllerClient)
 
 	return controllerClient.VolumeExpand(size)
 }
@@ -133,7 +144,12 @@ func startFrontend(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client connection: %v", err)
+		}
+	}(controllerClient)
 
 	return controllerClient.VolumeFrontendStart(frontendName)
 }
@@ -143,7 +159,12 @@ func shutdownFrontend(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client connection: %v", err)
+		}
+	}(controllerClient)
 
 	return controllerClient.VolumeFrontendShutdown()
 }
@@ -162,7 +183,12 @@ func unmapMarkSnapChainRemoved(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client connection: %v", err)
+		}
+	}(controllerClient)
 
 	return controllerClient.VolumeUnmapMarkSnapChainRemovedSet(enabled)
 }

@@ -2,9 +2,10 @@ package replica_dbs
 
 import (
 	"fmt"
-	"github.com/Kampadais/dbs"
 	"strconv"
 	"sync"
+
+	"github.com/Kampadais/dbs"
 
 	"github.com/sirupsen/logrus"
 
@@ -89,7 +90,10 @@ func (s *Server) Reload() error {
 	oldCtx := s.ctx
 	s.ctx = newCtx
 	// XXX Load rebuilding state
-	oldCtx.CloseVolume()
+	err = oldCtx.CloseVolume()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -179,7 +183,6 @@ func (s *Server) Snapshot(name string, userCreated bool, createdTime string, lab
 
 func (s *Server) SetUnmapMarkDiskChainRemoved(enabled bool) {
 	logrus.Infof("Replica server does not support SetUnmapMarkDiskChainRemoved")
-	return
 }
 
 func (s *Server) Expand(size int64) error {
@@ -213,7 +216,10 @@ func (s *Server) Delete() error {
 
 	logrus.Info("Deleting replica")
 	if s.ctx != nil {
-		s.ctx.CloseVolume()
+		err := s.ctx.CloseVolume()
+		if err != nil {
+			return err
+		}
 		s.ctx = nil
 	}
 	return dbs.DeleteVolume(s.device, s.volumeName)
@@ -225,7 +231,10 @@ func (s *Server) Close() error {
 
 	logrus.Info("Closing replica")
 	if s.ctx != nil {
-		s.ctx.CloseVolume()
+		err := s.ctx.CloseVolume()
+		if err != nil {
+			return err
+		}
 		s.ctx = nil
 	}
 	return nil

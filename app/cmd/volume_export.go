@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/longhorn/longhorn-engine/pkg/controller/client"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 
@@ -71,7 +72,12 @@ func exportVolume(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client: %v", err)
+		}
+	}(controllerClient)
 	volume, err := controllerClient.VolumeGet()
 	if err != nil {
 		return err
@@ -98,7 +104,12 @@ func exportVolume(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer rClient.Close()
+	defer func(rClient *replicaclient.ReplicaClient) {
+		err := rClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing replica client: %v", err)
+		}
+	}(rClient)
 
 	rInfo, err := rClient.GetReplica()
 	if err != nil {

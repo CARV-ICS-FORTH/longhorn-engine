@@ -268,7 +268,12 @@ func GetSnapshotHashInfoFromChecksumFile(snapshotName string) (*xattrType.Snapsh
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			logrus.WithError(err).Warnf("failed to close snapshot hash info file")
+		}
+	}(f)
 
 	var info xattrType.SnapshotHashInfo
 
@@ -315,7 +320,12 @@ func encodeToFile(obj interface{}, path string) (err error) {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			logrus.WithError(err).Warnf("failed to close snapshot hash info file")
+		}
+	}(f)
 
 	if err := json.NewEncoder(f).Encode(&obj); err != nil {
 		return err
@@ -391,7 +401,12 @@ func hashSnapshot(ctx context.Context, snapshotName string) (string, error) {
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to open %v", path)
 	}
-	defer f.Close()
+	defer func(f *sparse.DirectFileIoProcessor) {
+		err := f.Close()
+		if err != nil {
+			logrus.WithError(err).Warnf("failed to close snapshot file %v", path)
+		}
+	}(f)
 
 	h, err := newHashMethod(defaultHashMethod)
 	if err != nil {

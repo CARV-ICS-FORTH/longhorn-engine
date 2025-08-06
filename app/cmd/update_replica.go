@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/longhorn/longhorn-engine/pkg/controller/client"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 
@@ -44,7 +45,12 @@ func updateReplica(c *cli.Context) (*types.ControllerReplicaInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer controllerClient.Close()
+	defer func(controllerClient *client.ControllerClient) {
+		err := controllerClient.Close()
+		if err != nil {
+			fmt.Printf("Error closing controller client connection: %v", err)
+		}
+	}(controllerClient)
 
 	return controllerClient.ReplicaUpdate(replica, mode)
 }

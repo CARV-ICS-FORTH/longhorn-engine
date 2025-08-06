@@ -101,7 +101,10 @@ func (s *Server) Reload() error {
 
 	oldReplica := s.r
 	s.r = newReplica
-	oldReplica.Close()
+	err = oldReplica.Close()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

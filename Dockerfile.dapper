@@ -1,6 +1,8 @@
-FROM registry.suse.com/bci/golang:1.23
+FROM registry.suse.com/bci/golang:1.24
 
 ARG DAPPER_HOST_ARCH
+ARG SRC_BRANCH=master
+ARG SRC_TAG
 ARG http_proxy
 ARG https_proxy
 
@@ -14,18 +16,22 @@ ENV DAPPER_OUTPUT bin coverage.out
 # and mount filesystems to /tmp to simulate this without bind mounting everything.
 ENV DAPPER_RUN_ARGS --privileged --tmpfs /go/src/github.com/longhorn/longhorn-engine/integration/.venv:exec --tmpfs /go/src/github.com/longhorn/longhorn-engine/integration/.tox:exec -v /dev:/host/dev -v /proc:/host/proc --mount type=bind,source=/tmp,destination=/host/tmp,bind-propagation=rslave
 ENV DAPPER_SOURCE /go/src/github.com/longhorn/longhorn-engine
+ENV SRC_BRANCH ${SRC_BRANCH}
+ENV SRC_TAG ${SRC_TAG}
 
-ENV GOLANGCI_LINT_VERSION="v1.60.3"
+ENV LONGHORN_INSTANCE_MANAGER_BRANCH="master"
 
 WORKDIR ${DAPPER_SOURCE}
 ENTRYPOINT ["./scripts/entry"]
 CMD ["ci"]
 
-RUN zypper -n addrepo --refresh https://download.opensuse.org/repositories/system:/snappy/SLE_15/system:snappy.repo && \
-    zypper --gpg-auto-import-keys ref
+RUN for i in {1..10}; do \
+        zypper -n addrepo --refresh https://download.opensuse.org/repositories/system:/snappy/SLE_15/system:snappy.repo && \
+        zypper --gpg-auto-import-keys ref && break || sleep 1; \
+    done
 
 RUN if [ ${ARCH} == "amd64" ]; then \
-    zypper -n install autoconf libtool libunwind-devel; \
+        zypper -n install autoconf libtool libunwind-devel; \
     fi
 
 # TODO: use default python3 if SLE upgrade system python version to python3.11
@@ -34,11 +40,22 @@ RUN zypper -n install cmake curl git less file gcc python311 python311-pip pytho
     bash-completion librdmacm1 librdmacm-utils libibverbs xsltproc docbook-xsl-stylesheets \
     perl-Config-General libaio-devel glibc-devel-static glibc-devel sg3_utils iptables libltdl7 \
     libdevmapper1_03 iproute2 jq unzip zlib-devel zlib-devel-static \
-    rpm-build rdma-core-devel gcc-c++ docker open-iscsi && \
+    rpm-build rdma-core-devel gcc-c++ docker open-iscsi e2fsprogs && \
     rm -rf /var/cache/zypp/*
 
+
+# Install liburing
+RUN git clone https://github.com/axboe/liburing.git && \
+    cd liburing && \
+    ./configure --cc=gcc --cxx=g++ && \
+    make -j$(nproc) && \
+    make install
+
+
+
+
 # Install golangci-lint
-RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${GOLANGCI_LINT_VERSION}
+RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest
 
 # Install Minio
 ENV MINIO_URL_amd64=https://dl.min.io/server/minio/release/linux-amd64/archive/minio.RELEASE.2021-12-20T22-07-16Z \
@@ -67,21 +84,23 @@ RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 & \
     ln -sf /usr/bin/pip3.11 /usr/bin/pip3 && \
     pip3 install grpcio==1.58.0 grpcio_tools==1.58.0 protobuf==${PROTOBUF_VER_PY}
 
-# Build liblonghorn
-RUN cd /usr/src && \
-    git clone https://github.com/rancher/liblonghorn.git && \
-    cd liblonghorn && \
-    git checkout 53d1c063b95efc8d949b095bd4bf04637230265f && \
-    make; \
-    make install
+RUN git clone https://github.com/longhorn/dep-versions.git -b ${SRC_BRANCH} /usr/src/dep-versions && \
+    cd /usr/src/dep-versions && \
+    if [ -n "${SRC_TAG}" ] && git show-ref --tags ${SRC_TAG} > /dev/null 2>&1; then \
+        echo "Checking out tag ${SRC_TAG}"; \
+        cd /usr/src/dep-versions && git checkout tags/${SRC_TAG}; \
+    fi
 
+# Build liblonghorn
+RUN export REPO_OVERRIDE="" && \
+    export COMMIT_ID_OVERRIDE="" && \
+    bash /usr/src/dep-versions/scripts/build-liblonghorn.sh "${REPO_OVERRIDE}" "${COMMIT_ID_OVERRIDE}"
+
+RUN zypper -n install glibc-devel
 # Build TGT
-RUN cd /usr/src && \
-    git clone https://github.com/rancher/tgt.git && \
-    cd tgt && \
-    git checkout 3a8bc4823b5390e046f7aa8231ed262c0365c42c && \
-    make; \
-    make install
+RUN export REPO_OVERRIDE="" && \
+    export COMMIT_ID_OVERRIDE="" && \
+    bash /usr/src/dep-versions/scripts/build-tgt.sh "${REPO_OVERRIDE}" "${COMMIT_ID_OVERRIDE}"
 
 # Build cache for tox
 RUN mkdir integration/
@@ -94,7 +113,12 @@ RUN cd integration && \
 
 # Build longhorn-instance-manager for integration testing
 RUN cd /go/src/github.com/longhorn && \
-    git clone https://github.com/longhorn/longhorn-instance-manager.git && \
+    git clone https://github.com/longhorn/longhorn-instance-manager.git -b ${LONGHORN_INSTANCE_MANAGER_BRANCH} && \
     cd longhorn-instance-manager && \
     go build -o ./longhorn-instance-manager -tags netgo -ldflags "-linkmode external -extldflags -static" && \
     install longhorn-instance-manager /usr/local/bin
+
+# Docker Builx: The docker version in dapper is too old to have buildx. Install it manually.
+RUN curl -sSfLO https://github.com/docker/buildx/releases/download/v0.13.1/buildx-v0.13.1.linux-${ARCH} && \
+    chmod +x buildx-v0.13.1.linux-${ARCH} && \
+    mv buildx-v0.13.1.linux-${ARCH} /usr/local/bin/buildx

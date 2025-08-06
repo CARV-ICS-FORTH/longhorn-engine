@@ -2,10 +2,11 @@ package dataconn
 
 import (
 	"errors"
-	"github.com/longhorn/longhorn-engine/pkg/types"
-	"github.com/sirupsen/logrus"
 	"io"
 	"net"
+
+	"github.com/longhorn/longhorn-engine/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -132,25 +133,28 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 // Close replica client
 func (c *Client) Close() {
 	for _, wire := range c.wires {
-		wire.CClose()
+		err := wire.CClose()
+		if err != nil {
+			return
+		}
 	}
 	c.end <- struct{}{}
 }
 
-func (c *Client) replyError(req *Message, err error) {
-	req.Type = TypeError
-	req.Data = []byte(err.Error())
-	req.Complete <- struct{}{}
-}
+//func (c *Client) replyError(req *Message, err error) {
+//	req.Type = TypeError
+//	req.Data = []byte(err.Error())
+//	req.Complete <- struct{}{}
+//}
 
-func (c *Client) handleRequest(req *Message) {
-	req.MagicVersion = MagicVersion
-
-	req.Seq = <-c.SeqChan
-
-	c.messages[req.Seq] = req
-	c.send <- req
-}
+//func (c *Client) handleRequest(req *Message) {
+//	req.MagicVersion = MagicVersion
+//
+//	req.Seq = <-c.SeqChan
+//
+//	c.messages[req.Seq] = req
+//	c.send <- req
+//}
 
 func (c *Client) handleResponse(resp *Message) {
 

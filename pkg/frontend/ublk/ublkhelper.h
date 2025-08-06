@@ -2,6 +2,8 @@
 #ifndef UBLKHELPER_H
 #define UBLKHELPER_H
 
+#include <stdbool.h>
+#include <sched.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>

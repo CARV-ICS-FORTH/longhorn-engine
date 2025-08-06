@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+
+	"github.com/longhorn/longhorn-engine/pkg/controller/client"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -20,7 +23,12 @@ func Journal() cli.Command {
 			if err != nil {
 				logrus.Fatalln("Error running journal command:", err)
 			}
-			defer controllerClient.Close()
+			defer func(controllerClient *client.ControllerClient) {
+				err := controllerClient.Close()
+				if err != nil {
+					fmt.Printf("Error closing controller client connection: %v", err)
+				}
+			}(controllerClient)
 
 			if err = controllerClient.JournalList(c.Int("limit")); err != nil {
 				logrus.Fatalln("Error running journal command:", err)

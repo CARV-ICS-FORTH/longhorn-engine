@@ -10,7 +10,6 @@
 #include <limits.h>
 #include <syscall.h>
 #include <sys/mman.h>
-#include <sched.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include "ublksrv_tgt_endian.h"

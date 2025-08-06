@@ -436,7 +436,10 @@ func (c *Controller) GetExpansionErrorInfo() (string, string) {
 func (c *Controller) addReplicaNoLock(newBackend types.Backend, address string, snapshot bool, mode types.Mode) (err error) {
 	defer func() {
 		if err != nil && newBackend != nil {
-			newBackend.Close()
+			err := newBackend.Close()
+			if err != nil {
+				return
+			}
 		}
 	}()
 
@@ -818,7 +821,7 @@ func (c *Controller) SetSnapshotMaxSize(size int64) error {
 		err := c.backend.SetSnapshotMaxSize(r.Address, size)
 		if err != nil {
 			logrus.Errorf("Failed to set flag SnapshotMaxSize to %d in replica %s, err: %v", size, r.Address, err)
-			return fmt.Errorf("Failed to set flag SnapshotMaxSize to %d in replica %s, err: %v", size, r.Address, err)
+			return fmt.Errorf("failed to set flag SnapshotMaxSize to %d in replica %s, err: %v", size, r.Address, err)
 		}
 	}
 

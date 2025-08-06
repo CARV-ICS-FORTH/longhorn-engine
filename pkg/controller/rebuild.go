@@ -102,13 +102,23 @@ func syncFile(from, to, fromAddress, toAddress, volumeName, toInstanceName strin
 	if err != nil {
 		return errors.Wrapf(err, "cannot get replica client for %v", fromAddress)
 	}
-	defer fromClient.Close()
+	defer func(fromClient *client.ReplicaClient) {
+		err := fromClient.Close()
+		if err != nil {
+			logrus.Errorf("cannot close replica client connection: %v", err)
+		}
+	}(fromClient)
 
 	toClient, err := client.NewReplicaClient(toAddress, volumeName, toInstanceName)
 	if err != nil {
 		return errors.Wrapf(err, "cannot get replica client for %v", toAddress)
 	}
-	defer toClient.Close()
+	defer func(toClient *client.ReplicaClient) {
+		err := toClient.Close()
+		if err != nil {
+			logrus.Errorf("cannot close replica client connection: %v", err)
+		}
+	}(toClient)
 
 	host, port, err := toClient.LaunchReceiver(to)
 	if err != nil {
@@ -204,7 +214,12 @@ func removeExtraDisks(extraDisks map[string]types.DiskInfo, address, volumeName,
 	if err != nil {
 		return errors.Wrapf(err, "cannot create replica client for address %v", address)
 	}
-	defer repClient.Close()
+	defer func(repClient *client.ReplicaClient) {
+		err := repClient.Close()
+		if err != nil {
+			logrus.Errorf("cannot close replica client connection: %v", err)
+		}
+	}(repClient)
 
 	for disk := range extraDisks {
 		if err = repClient.RemoveDisk(disk, true); err != nil {

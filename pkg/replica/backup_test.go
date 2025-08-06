@@ -2,6 +2,7 @@ package replica
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 
@@ -17,14 +18,24 @@ const (
 func (s *TestSuite) TestBackup(c *C) {
 	dir, err := os.MkdirTemp("", "replica")
 	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Printf("Error removing temp directory: %v", err)
+		}
+	}(dir)
 
 	err = os.Chdir(dir)
 	c.Assert(err, IsNil)
 
 	r, err := New(context.Background(), 10*mb, bs, dir, nil, false, false, 250, 0)
 	c.Assert(err, IsNil)
-	defer r.Close()
+	defer func(r *Replica) {
+		err := r.Close()
+		if err != nil {
+			fmt.Printf("Error closing replica: %v", err)
+		}
+	}(r)
 
 	buf := make([]byte, 2*mb)
 	fill(buf, 1)
@@ -59,11 +70,21 @@ func (s *TestSuite) TestBackupWithBackups(c *C) {
 func (s *TestSuite) TestBackupWithBackupsAndBacking(c *C) {
 	dir, err := os.MkdirTemp("", "replica")
 	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Printf("Error removing temp directory: %v", err)
+		}
+	}(dir)
 
 	f, err := NewTestBackingFile(path.Join(dir, "backing"))
 	c.Assert(err, IsNil)
-	defer f.Close()
+	defer func(f *TestBackingFile) {
+		err := f.Close()
+		if err != nil {
+			fmt.Printf("Error closing backing file: %v", err)
+		}
+	}(f)
 
 	buf := make([]byte, 10*mb)
 	fill(buf, 9)
@@ -82,7 +103,12 @@ func (s *TestSuite) TestBackupWithBackupsAndBacking(c *C) {
 func (s *TestSuite) testBackupWithBackups(c *C, backingFile *backingfile.BackingFile) {
 	dir, err := os.MkdirTemp("", "replica")
 	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Printf("Error removing temp directory: %v", err)
+		}
+	}(dir)
 
 	err = os.Chdir(dir)
 	c.Assert(err, IsNil)
@@ -90,7 +116,12 @@ func (s *TestSuite) testBackupWithBackups(c *C, backingFile *backingfile.Backing
 
 	r, err := New(context.Background(), 10*mb, bs, dir, backingFile, false, false, 250, 0)
 	c.Assert(err, IsNil)
-	defer r.Close()
+	defer func(r *Replica) {
+		err := r.Close()
+		if err != nil {
+			fmt.Printf("Error closing replica: %v", err)
+		}
+	}(r)
 
 	// Write layout as follows
 	//               0 1 2 3 4 5 6 7 8 9 mb

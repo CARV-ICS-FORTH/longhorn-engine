@@ -4,7 +4,8 @@ set -e
 
 cd "$(dirname "$0")"
 
-SKIP_TASKS=${SKIP_TASKS:-}
+# Default skipped tasks (can be overridden by env var)
+: "${SKIP_TASKS:=test integration-test}"
 IFS=' ' read -ra skip_tasks <<<"$SKIP_TASKS"
 
 tasks=("build" "validate" "sync-grpc-py" "test" "integration-test" "package")

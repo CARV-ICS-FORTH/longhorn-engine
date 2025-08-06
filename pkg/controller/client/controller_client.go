@@ -416,7 +416,12 @@ func (c *ControllerClient) Check() error {
 	if err != nil {
 		return errors.Wrapf(err, "cannot connect to ControllerService %v", c.serviceURL)
 	}
-	defer conn.Close()
+	defer func(conn *grpc.ClientConn) {
+		err := conn.Close()
+		if err != nil {
+			fmt.Printf("Error closing replica client connection: %v\n", err)
+		}
+	}(conn)
 	// TODO: JM we can reuse the controller service context connection for the health requests
 	healthCheckClient := healthpb.NewHealthClient(conn)
 
