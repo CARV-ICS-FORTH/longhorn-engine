@@ -10,15 +10,16 @@ package ublk
 import "C"
 import (
 	"fmt"
-	"github.com/longhorn/longhorn-engine/pkg/dataconn"
-	"github.com/longhorn/longhorn-engine/pkg/types"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"unsafe"
+
+	"github.com/longhorn/longhorn-engine/pkg/dataconn"
+	"github.com/longhorn/longhorn-engine/pkg/types"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -114,14 +115,18 @@ func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 		run_dir:          C.CString(runDir),
 		max_io_buf_bytes: C.uint(maxIOBufBytes),
 	}
+	u.isUp = true
+	go func() {
+		dev := C.ublksrv_ctrl_init(&data)
+		C.ublksrv_ctrl_add_dev(dev)
+		sectors := uint64(u.Size) >> 9
+		C.init_params(dev, C.__u64(sectors))
 
-	dev := C.ublksrv_ctrl_init(&data)
-	C.ublksrv_ctrl_add_dev(dev)
-	C.init_params(dev, &data)
+		u.UblkID = int(dev.dev_info.dev_id)
 
-	u.UblkID = int(dev.dev_info.dev_id)
+		C.ublksrv_start_daemon(dev)
+	}()
 
-	C.ublksrv_start_daemon(dev)
 	return nil
 
 }
@@ -141,7 +146,7 @@ func (u *Ublk) State() types.State {
 
 func (u *Ublk) Endpoint() string {
 	if u.isUp {
-		return u.GetSocketPath()
+		return "/dev/ublkb" + string(u.UblkID)
 	}
 	return ""
 }

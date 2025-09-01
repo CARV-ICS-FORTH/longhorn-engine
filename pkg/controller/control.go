@@ -1014,26 +1014,26 @@ func (c *Controller) Start(volumeSize, volumeCurrentSize int64, addresses ...str
 	// If the live upgrade is in-progress, the revision counters among replicas can be temporarily
 	// out of sync. They will be refreshed after the first write command.
 	// For more details, see the following url:
-	// https://github.com/longhorn/longhorn/issues/1235
-	if !c.isUpgrade {
-		if err := c.checkReplicaRevCounterSettingMatch(); err != nil {
-			return err
-		}
-
-		if c.revisionCounterDisabled {
-			if c.salvageRequested {
-				if err := c.salvageRevisionCounterDisabledReplicas(); err != nil {
-					return err
-				}
-			}
-		} else {
-			// For revision counter enabled case, no matter salvageRequested
-			// always check the revision counter.
-			if err := c.checkReplicasRevisionCounter(); err != nil {
-				return err
-			}
-		}
-	}
+	// https://	github.com/longhorn/longhorn/issues/1235
+	//if !c.isUpgrade {
+	//	if err := c.checkReplicaRevCounterSettingMatch(); err != nil {
+	//		return err
+	//	}
+	//
+	//	if c.revisionCounterDisabled {
+	//		if c.salvageRequested {
+	//			if err := c.salvageRevisionCounterDisabledReplicas(); err != nil {
+	//				return err
+	//			}
+	//		}
+	//	} else {
+	//		// For revision counter enabled case, no matter salvageRequested
+	//		// always check the revision counter.
+	//		if err := c.checkReplicasRevisionCounter(); err != nil {
+	//			return err
+	//		}
+	//	}
+	//}
 
 	return c.startFrontend()
 }

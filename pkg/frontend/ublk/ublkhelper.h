@@ -267,7 +267,7 @@ struct ublksrv_dev {
 };
 int ublksrv_start_daemon(struct ublksrv_ctrl_dev *ctrl_dev);
 
-int init_params(struct ublksrv_ctrl_dev *dev,struct ublksrv_dev_data *data);
+int init_params(struct ublksrv_ctrl_dev *dev,__u64 dev_sectors);
 int ublksrv_ctrl_start_dev(struct ublksrv_ctrl_dev *ctrl_dev,int daemon_pid);
 
 

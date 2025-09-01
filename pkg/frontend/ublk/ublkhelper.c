@@ -369,7 +369,7 @@ fail:
 }
 
 
-int init_params(struct ublksrv_ctrl_dev *dev,struct ublksrv_dev_data *data){
+int init_params(struct ublksrv_ctrl_dev *dev,__u64 dev_sectors ){
 
 struct ublk_params params;
     const struct ublksrv_ctrl_dev_info *info = ublksrv_ctrl_get_dev_info(dev);
@@ -389,7 +389,7 @@ struct ublk_params params;
     params.basic.max_sectors = info->max_io_buf_bytes >> 9;
 
     // Hard-code 1GB in sectors (512 bytes per sector, so 1GB / 512)
-    params.basic.dev_sectors = (1ULL << 30) >> 9;
+    params.basic.dev_sectors =dev_sectors;
 
     // Fill in discard params
     params.discard.discard_granularity = 1U << 9;

@@ -4,10 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"syscall"
 
 	"github.com/docker/go-units"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
+	"golang.org/x/net/context"
 
 	"github.com/Kampadais/dbs"
 	replica "github.com/longhorn/longhorn-engine/pkg/replica_dbs"
@@ -58,13 +64,33 @@ func startReplicaDBS(c *cli.Context) error {
 		return errors.New("device name is required")
 	}
 
-	device := c.Args()[0]
+	dir := c.Args()[0]
 
-	initDevice := c.Bool("initDevice")
-	if initDevice {
-		if err := dbs.InitDevice(device); err != nil {
-			return fmt.Errorf("failed to init device: %w", err)
-		}
+	//Create folder
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		fmt.Println("Error creating replica dbs directory:", err)
+		return err
+	}
+	//Create replica file
+	path := filepath.Join(dir, "replica_dbs.img")
+
+	size := c.String("size")
+	if size == "" {
+		return errors.New("size is required")
+	}
+	volumeSize, err := units.RAMInBytes(size)
+	cmd := exec.Command("truncate", "-s "+strconv.FormatInt(volumeSize, 10), path)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	fmt.Println("Creating file... , running command:", cmd)
+	if err := cmd.Run(); err != nil {
+		panic(err)
+	}
+
+	fmt.Println("File created successfully at", path)
+	if err := dbs.InitDevice(path); err != nil {
+		return fmt.Errorf("failed to init device: %w", err)
 	}
 
 	volumeName := c.GlobalString("volume-name")
@@ -73,25 +99,17 @@ func startReplicaDBS(c *cli.Context) error {
 		//return errors.New("volume name is required")
 		volumeName = "test"
 	}
-	s := replica.NewServer(device, volumeName)
+	s := replica.NewServer(path, volumeName)
 
-	size := c.String("size")
-	if size != "" {
-		size, err := units.RAMInBytes(size)
-		if err != nil {
-			return err
-		}
-
-		if err := s.Create(size); err != nil {
-			return err
-		}
+	if err := s.Create(volumeSize); err != nil {
+		return err
 	}
 
 	address := c.String("listen")
 	replicaInstanceName := c.String("replica-instance-name")
 	dataServerProtocol := c.String("data-server-protocol")
 
-	controlAddress, dataAddress, _, _, err :=
+	controlAddress, dataAddress, syncAddress, syncPort, err :=
 		util.GetAddresses(volumeName, address, types.DataServerProtocol(dataServerProtocol))
 	if err != nil {
 		return err
@@ -122,6 +140,43 @@ func startReplicaDBS(c *cli.Context) error {
 		logrus.WithError(err).Warnf("Replica rest server at %v is down", dataAddress)
 		resp <- err
 	}()
+	_, cancel := context.WithCancel(context.Background())
+	defer func() {
+		if err != nil {
+			cancel()
+		}
+	}()
+	if c.Bool("sync-agent") {
+		exe, err := exec.LookPath(os.Args[0])
+		if err != nil {
+			return err
+		}
+
+		exe, err = filepath.Abs(exe)
+		if err != nil {
+			return err
+		}
+
+		go func() {
+			defer cancel()
+
+			cmd := exec.Command(exe, "--volume-name", volumeName, "sync-agent", "--listen", syncAddress,
+				"--replica", controlAddress,
+				"--listen-port-range",
+				fmt.Sprintf("%v-%v", syncPort+1, syncPort+c.Int("sync-agent-port-count")),
+				"--replica-instance-name", replicaInstanceName)
+			cmd.SysProcAttr = &syscall.SysProcAttr{
+				Pdeathsig: syscall.SIGKILL,
+			}
+			cmd.Dir = dir
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			logrus.Infof("Listening on sync agent server %s", syncAddress)
+			err := cmd.Run()
+			logrus.WithError(err).Warnf("Replica sync agent at %v is down", syncAddress)
+			resp <- err
+		}()
+	}
 
 	// empty shutdown hook for signal message
 	addShutdown(func() (err error) { return nil })
