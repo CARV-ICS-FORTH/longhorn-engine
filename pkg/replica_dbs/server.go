@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/Kampadais/dbs"
-
 	"github.com/sirupsen/logrus"
 
 	"github.com/longhorn/longhorn-engine/pkg/replica"
@@ -15,11 +14,13 @@ import (
 
 type Server struct {
 	sync.RWMutex
-	device     string
-	volumeName string
-	ctx        *dbs.VolumeContext
-	dirty      bool
-	rebuilding bool
+	device           string
+	volumeName       string
+	ctx              *dbs.VolumeContext
+	dirty            bool
+	rebuilding       bool
+	snapshotMaxCount int
+	snapshotMaxSize  int64
 }
 
 type Info struct {
@@ -176,9 +177,31 @@ func (s *Server) Revert(name, created string) error {
 }
 
 func (s *Server) Snapshot(name string, userCreated bool, createdTime string, labels map[string]string) error {
-	logrus.Infof("Replica server does not support Snapshot")
-	return fmt.Errorf("cannot create snapshot [%s] volume, user created %v, created time %v, labels %v",
+	s.Lock()
+	defer s.Unlock()
+
+	logrus.Infof("Replica server starts to snapshot [%s] volume, user created %v, created time %v, labels %v",
 		name, userCreated, createdTime, labels)
+
+	err := dbs.CreateSnapshot(s.device, s.volumeName, userCreated, createdTime, labels)
+	if err != nil {
+		return err
+	}
+
+	newCtx, err := dbs.OpenVolume(s.device, s.volumeName)
+	if err != nil {
+		return err
+	}
+
+	oldCtx := s.ctx
+	s.ctx = newCtx
+	// XXX Load rebuilding state
+	err = oldCtx.CloseVolume()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Server) SetUnmapMarkDiskChainRemoved(enabled bool) {
@@ -248,7 +271,17 @@ func (s *Server) WriteAt(buf []byte, offset int64) (int, error) {
 
 	// Try with a read lock and upgrade to a write lock if necessary
 	s.RLock()
-	err := s.ctx.WriteAt(buf, uint64(offset))
+	err := s.ctx.WriteAt(buf, uint64(offset), false)
+	if err != nil {
+		s.RUnlock()
+		s.Lock()
+		err := s.ctx.WriteAt(buf, uint64(offset), true)
+		if err != nil {
+			return 0, err
+		}
+		s.Unlock()
+		return len(buf), nil
+	}
 	s.RUnlock()
 
 	return len(buf), err
@@ -287,4 +320,31 @@ func (s *Server) PingResponse() error {
 		return fmt.Errorf("ping failure: replica state %v", types.ReplicaStateClosed)
 	}
 	return nil
+}
+
+func (s *Server) GetDevice() string {
+	return s.device
+}
+
+func (s *Server) GetVolumeName() string {
+	return s.volumeName
+}
+
+func (s *Server) GetSnapshotMaxCount() int {
+	return s.snapshotMaxCount
+}
+
+func (s *Server) GetRemainingSnapshotCounts() int {
+	s.RLock()
+	defer s.RUnlock()
+
+	if s.ctx == nil {
+		return 0
+	}
+	snapshots, err := dbs.GetSnapshotInfo(s.device, s.volumeName)
+	if err != nil {
+		logrus.WithError(err).Warnf("failed to get snapshot info for replica %v", s.volumeName)
+		return 0
+	}
+	return s.snapshotMaxCount - len(snapshots)
 }

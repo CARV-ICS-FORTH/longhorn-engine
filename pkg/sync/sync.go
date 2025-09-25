@@ -783,6 +783,28 @@ func GetSnapshotsInfo(replicas []*types.ControllerReplicaInfo, volumeName string
 	return outputDisks, nil
 }
 
+func GetDBSSnapshotsInfo(replicas []*types.ControllerReplicaInfo, volumeName string) (outputDisks map[string]types.DiskInfo, err error) {
+	if len(replicas) == 0 {
+		return nil, fmt.Errorf("cannot find any replica for snapshot info")
+	}
+	repClient, err := replicaClient.NewReplicaClient(replicas[0].Address, volumeName, "")
+	if err != nil {
+		return nil, err
+	}
+	defer func(repClient *replicaClient.ReplicaClient) {
+		err := repClient.Close()
+		if err != nil {
+			logrus.Errorf("Error closing replica client: %v", err)
+		}
+	}(repClient)
+
+	Sinfo, err := repClient.GetReplica()
+	if err != nil {
+		return nil, err
+	}
+	return Sinfo.Disks, nil
+
+}
 func (t *Task) StartWithReplicas(volumeSize, volumeCurrentSize int64, replicas []string) error {
 	volume, err := t.client.VolumeGet()
 	if err != nil {

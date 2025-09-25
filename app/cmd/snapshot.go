@@ -131,6 +131,13 @@ func SnapshotLsCmd() cli.Command {
 func SnapshotInfoCmd() cli.Command {
 	return cli.Command{
 		Name: "info",
+		Flags: []cli.Flag{
+			cli.BoolFlag{
+				Name:     "dbs",
+				Required: false,
+				Usage:    "Replica is using DBS, get snapshot info from DBS",
+			},
+		},
 		Action: func(c *cli.Context) {
 			if err := infoSnapshot(c); err != nil {
 				logrus.WithError(err).Fatalf("Error running snapshot info command")
@@ -461,6 +468,21 @@ func infoSnapshot(c *cli.Context) error {
 	}
 
 	volumeName := c.GlobalString("volume-name")
+	if c.Bool("dbs") {
+
+		outputDisk, err := sync.GetDBSSnapshotsInfo(replicas, volumeName)
+		if err != nil {
+			return err
+		}
+
+		output, err = json.MarshalIndent(outputDisk, "", "\t")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(output))
+		return err
+	}
+
 	outputDisks, err := sync.GetSnapshotsInfo(replicas, volumeName)
 	if err != nil {
 		return err

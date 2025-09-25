@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.25.0
 
 require (
-	github.com/Kampadais/dbs v0.0.0-20250730145610-cb35aabe9d98
+	github.com/Kampadais/dbs v0.0.0-20250925134741-609b685c95e8
 	github.com/docker/go-units v0.5.0
 	github.com/gofrs/flock v0.12.1
 	github.com/google/uuid v1.6.0

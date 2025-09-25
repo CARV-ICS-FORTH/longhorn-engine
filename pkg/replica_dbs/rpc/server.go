@@ -3,10 +3,13 @@ package rpc
 import (
 	"fmt"
 	"strconv"
+	"time"
 
+	"github.com/Kampadais/dbs"
 	"github.com/longhorn/go-common-libs/profiler"
 	"github.com/longhorn/types/pkg/generated/enginerpc"
 	"github.com/longhorn/types/pkg/generated/profilerrpc"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -57,6 +60,44 @@ func (rs *ReplicaServer) getReplica() (replica *enginerpc.Replica) {
 		BackingFile: "",
 		State:       string(state),
 	}
+
+	snapshots, err := dbs.GetSnapshotInfo(rs.s.GetDevice(), rs.s.GetVolumeName())
+	if err != nil {
+		logrus.WithError(err).Warnf("failed to get snapshot info for replica %v", rs.s.GetVolumeName())
+	}
+	var chain []string
+	disks := map[string]*enginerpc.DiskInfo{}
+	// The snapshots are returned in the order of creation time ascending.
+
+	for _, sn := range snapshots {
+		chain = append(chain, strconv.Itoa(int(sn.SnapshotId)))
+		name := strconv.Itoa(int(sn.SnapshotId))
+		if name == info.Head {
+			name = "volume-head"
+		}
+		disks[name] = &enginerpc.DiskInfo{
+			Name: name,
+			Parent: func() string {
+				if sn.ParentSnapshotId == 0 {
+					return ""
+				}
+				return strconv.Itoa(int(sn.ParentSnapshotId))
+			}(),
+			Removed:     false,
+			UserCreated: sn.UserCreated,
+			Created:     sn.CreatedAt.Format(time.RFC3339Nano),
+			Labels:      sn.Labels,
+			Size:        strconv.FormatUint(sn.Size, 10),
+		}
+	}
+
+	replica.Disks = disks
+	replica.Chain = chain
+	replica.RemainSnapshots = int32(rs.s.GetRemainingSnapshotCounts())
+	replica.SnapshotCountUsage = int32(len(snapshots))
+	replica.SnapshotSizeUsage = 0
+	replica.RevisionCounterDisabled = true
+
 	return replica
 }
 

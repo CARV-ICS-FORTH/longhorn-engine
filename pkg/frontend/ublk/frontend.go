@@ -252,8 +252,12 @@ func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q
 			copy(dst, msgObj.RData)
 		}
 
-		nrSectors := C.get_nr_sectors(data.iod)
-		C.ublksrv_complete_io(q, C.uint(data.tag), C.int(nrSectors<<9))
+		if opType == LONGHORN_CMD_TYPE_UNMAP {
+			C.ublksrv_complete_io(q, C.uint(data.tag), 0)
+		} else {
+			nrSectors := C.get_nr_sectors(data.iod)
+			C.ublksrv_complete_io(q, C.uint(data.tag), C.int(nrSectors<<9))
+		}
 		msgChan <- msgObj
 	}(EngineMsg, opType, dataPtr, dataLen, q, data)
 

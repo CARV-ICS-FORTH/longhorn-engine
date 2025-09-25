@@ -40,7 +40,7 @@ github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/internal/shared
 github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/pageblob
 github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas
 github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service
-# github.com/Kampadais/dbs v0.0.0-20250730145610-cb35aabe9d98
+# github.com/Kampadais/dbs v0.0.0-20250925134741-609b685c95e8
 ## explicit; go 1.21
 github.com/Kampadais/dbs
 # github.com/aws/aws-sdk-go v1.55.5
