@@ -138,14 +138,29 @@ func (c *Client) Close() {
 			return
 		}
 	}
+	//reply error to all pending requests
+	for i := 0; i < queueLength; i++ {
+		go func() {
+			msg := c.messages[i]
+			select {
+			case <-msg.Complete:
+				// already completed
+			default:
+				c.replyError(msg, errors.New("connection closed"))
+				c.SeqChan <- msg.Seq
+			}
+		}()
+
+	}
+
 	c.end <- struct{}{}
 }
 
-//func (c *Client) replyError(req *Message, err error) {
-//	req.Type = TypeError
-//	req.Data = []byte(err.Error())
-//	req.Complete <- struct{}{}
-//}
+func (c *Client) replyError(req *Message, err error) {
+	req.Type = TypeError
+	req.Data = []byte(err.Error())
+	req.Complete <- struct{}{}
+}
 
 //func (c *Client) handleRequest(req *Message) {
 //	req.MagicVersion = MagicVersion
