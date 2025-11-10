@@ -215,3 +215,15 @@ type FileLocalSync struct {
 	SourcePath string
 	TargetPath string
 }
+
+type UblkSrvOptions struct {
+	// +optional
+	QueueDepth int `json:"queueDepth"`
+	// +optional
+	Queues int `json:"queues"`
+}
+
+type FrontendOptions struct {
+	// +optional
+	UblkSrvOptions *UblkSrvOptions `json:"ublkSrvOptions"`
+}

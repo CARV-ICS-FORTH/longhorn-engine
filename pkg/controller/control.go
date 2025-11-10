@@ -567,7 +567,7 @@ func (c *Controller) startFrontend() error {
 	return nil
 }
 
-func (c *Controller) StartFrontend(frontend string) error {
+func (c *Controller) StartFrontend(frontend string, options types.FrontendOptions) error {
 	//c.Lock()
 	//defer c.Unlock()
 
@@ -584,7 +584,7 @@ func (c *Controller) StartFrontend(frontend string) error {
 		}
 	}
 
-	f, err := NewFrontend(frontend, c.iscsiTargetRequestTimeout, c.frontendQueues)
+	f, err := NewFrontend(frontend, c.iscsiTargetRequestTimeout, options)
 	if err != nil {
 		return errors.Wrapf(err, "failed to find frontend: %s", frontend)
 	}

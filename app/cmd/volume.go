@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/longhorn/longhorn-engine/pkg/controller/client"
+	"github.com/longhorn/longhorn-engine/pkg/types"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -151,7 +152,12 @@ func startFrontend(c *cli.Context) error {
 		}
 	}(controllerClient)
 
-	return controllerClient.VolumeFrontendStart(frontendName)
+	return controllerClient.VolumeFrontendStart(frontendName, types.FrontendOptions{
+		UblkSrvOptions: &types.UblkSrvOptions{
+			Queues:     2,
+			QueueDepth: 128,
+		},
+	})
 }
 
 func shutdownFrontend(c *cli.Context) error {

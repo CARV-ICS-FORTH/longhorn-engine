@@ -163,7 +163,12 @@ func (cs *ControllerServer) VolumeExpand(ctx context.Context, req *enginerpc.Vol
 }
 
 func (cs *ControllerServer) VolumeFrontendStart(ctx context.Context, req *enginerpc.VolumeFrontendStartRequest) (*enginerpc.Volume, error) {
-	if err := cs.c.StartFrontend(req.Frontend); err != nil {
+	if err := cs.c.StartFrontend(req.Frontend, types.FrontendOptions{
+		UblkSrvOptions: &types.UblkSrvOptions{
+			Queues:     2,
+			QueueDepth: 128,
+		},
+	}); err != nil {
 		return nil, err
 	}
 

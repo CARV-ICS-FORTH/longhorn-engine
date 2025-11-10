@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"unsafe"
 
 	"github.com/longhorn/longhorn-engine/pkg/dataconn"
@@ -60,8 +61,13 @@ type Ublk struct {
 	socketServer *dataconn.Server
 }
 
-func New(frontendQueues int) *Ublk {
-	return &Ublk{Queues: frontendQueues}
+func New(options types.FrontendOptions) *Ublk {
+	return &Ublk{
+		Queues:     options.UblkSrvOptions.Queues,
+		QueueDepth: options.UblkSrvOptions.QueueDepth,
+		BlockSize:  4096,
+		isUp:       false,
+	}
 }
 
 func (u *Ublk) FrontendName() string {
@@ -102,8 +108,20 @@ func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 		fmt.Println("Error creating directory")
 		return err
 	}
-	queueDepth := C.DEF_QD
-	nrHwQueues := C.DEF_NR_HW_QUEUES
+	nrHwQueues := 0
+	if u.Queues > 0 {
+		nrHwQueues = u.Queues
+	} else {
+		nrHwQueues = C.DEF_NR_HW_QUEUES
+	}
+
+	queueDepth := 0
+	if u.QueueDepth > 0 {
+		queueDepth = u.QueueDepth
+	} else {
+		queueDepth = C.DEF_QD
+	}
+
 	devId := -1
 	runDir := C.UBLKSRV_PID_DIR
 	maxIOBufBytes := C.DEF_BUF_SIZE
@@ -146,7 +164,7 @@ func (u *Ublk) State() types.State {
 
 func (u *Ublk) Endpoint() string {
 	if u.isUp {
-		return "/dev/ublkb" + string(u.UblkID)
+		return "/dev/ublkb" + strconv.Itoa(u.UblkID)
 	}
 	return ""
 }

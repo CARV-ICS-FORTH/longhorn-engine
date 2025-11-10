@@ -194,7 +194,7 @@ func (c *ControllerClient) VolumeExpand(size int64) error {
 	return nil
 }
 
-func (c *ControllerClient) VolumeFrontendStart(frontend string) error {
+func (c *ControllerClient) VolumeFrontendStart(frontend string, options types.FrontendOptions) error {
 	controllerServiceClient := c.getControllerServiceClient()
 	ctx, cancel := context.WithTimeout(context.Background(), GRPCServiceTimeout)
 	defer cancel()

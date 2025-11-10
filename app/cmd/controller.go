@@ -91,8 +91,14 @@ func ControllerCmd() cli.Command {
 			cli.IntFlag{
 				Name:     "frontend-queues",
 				Required: false,
-				Value:    1,
+				Value:    2,
 				Usage:    "Number of frontend queues , only available in ublk frontend",
+			},
+			cli.IntFlag{
+				Name:     "frontend-qd",
+				Required: false,
+				Value:    128,
+				Usage:    "Frontend queue depth , only available in ublk frontend",
 			},
 			cli.StringFlag{
 				Name:  "snapshot-max-size",
@@ -130,6 +136,7 @@ func startController(c *cli.Context) error {
 	fileSyncHTTPClientTimeout := c.Int("file-sync-http-client-timeout")
 	engineInstanceName := c.GlobalString("engine-instance-name")
 	frontendQueues := c.Int("frontend-queues")
+	frontendQd := c.Int("frontend-qd")
 
 	size := c.String("size")
 	if size == "" {
@@ -180,9 +187,15 @@ func startController(c *cli.Context) error {
 		}
 	}
 
+	var options = types.FrontendOptions{
+		UblkSrvOptions: &types.UblkSrvOptions{
+			QueueDepth: frontendQd,
+			Queues:     frontendQueues,
+		},
+	}
 	var frontend types.Frontend
 	if frontendName != "" {
-		f, err := controller.NewFrontend(frontendName, iscsiTargetRequestTimeout, frontendQueues)
+		f, err := controller.NewFrontend(frontendName, iscsiTargetRequestTimeout, options)
 		if err != nil {
 			return errors.Wrapf(err, "failed to find frontend: %s", frontendName)
 		}

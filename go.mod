@@ -2,7 +2,7 @@ module github.com/longhorn/longhorn-engine
 
 go 1.24.0
 
-toolchain go1.25.0
+toolchain go1.25.2
 
 require (
 	github.com/Kampadais/dbs v0.0.0-20250925134741-609b685c95e8
