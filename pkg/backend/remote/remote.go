@@ -440,7 +440,7 @@ func (r *Remote) info() (*types.ReplicaInfo, error) {
 }
 
 func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.DataServerProtocol,
-	sharedTimeouts types.SharedTimeouts) (types.Backend, error) {
+	sharedTimeouts types.SharedTimeouts, nrConnections int) (types.Backend, error) {
 	logrus.Infof("Connecting to remote: %s (%v)", address, dataServerProtocol)
 
 	controlAddress, dataAddress, _, _, err := util.GetAddresses(volumeName, address, dataServerProtocol)
@@ -468,7 +468,7 @@ func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.D
 	}
 
 	var conns []net.Conn
-	for i := 0; i < NumberOfConnections; i++ {
+	for i := 0; i < nrConnections; i++ {
 		conn, err := connect(dataServerProtocol, dataAddress)
 		if err != nil {
 			return nil, err

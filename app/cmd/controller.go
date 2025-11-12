@@ -104,6 +104,12 @@ func ControllerCmd() cli.Command {
 				Name:  "snapshot-max-size",
 				Usage: "Maximum total snapshot size in bytes or human readable 42kb, 42mb, 42gb",
 			},
+			cli.IntFlag{
+				Name:     "cr-connections",
+				Required: false,
+				Value:    6,
+				Usage:    "Number of concurrent controller-replica TCP connections",
+			},
 		},
 		Action: func(c *cli.Context) {
 			if err := startController(c); err != nil {
@@ -137,6 +143,7 @@ func startController(c *cli.Context) error {
 	engineInstanceName := c.GlobalString("engine-instance-name")
 	frontendQueues := c.Int("frontend-queues")
 	frontendQd := c.Int("frontend-qd")
+	nrConnections := c.Int("cr-connections")
 
 	size := c.String("size")
 	if size == "" {
@@ -215,7 +222,7 @@ func startController(c *cli.Context) error {
 	control := controller.NewController(volumeName, dynamic.New(factories), frontend, isUpgrade, disableRevCounter,
 		salvageRequested, unmapMarkSnapChainRemoved, iscsiTargetRequestTimeout, engineReplicaTimeoutShort,
 		engineReplicaTimeoutLong, types.DataServerProtocol(dataServerProtocol), fileSyncHTTPClientTimeout,
-		snapshotMaxCount, snapshotMaxSize, frontendQueues)
+		snapshotMaxCount, snapshotMaxSize, nrConnections)
 
 	// need to wait for Shutdown() completion
 	control.ShutdownWG.Add(1)

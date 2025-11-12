@@ -67,7 +67,7 @@ type Controller struct {
 
 	fileSyncHTTPClientTimeout int
 
-	frontendQueues int
+	nrConnections int
 }
 
 const (
@@ -77,7 +77,7 @@ const (
 func NewController(name string, factory types.BackendFactory, frontend types.Frontend, isUpgrade, disableRevCounter,
 	salvageRequested, unmapMarkSnapChainRemoved bool, iscsiTargetRequestTimeout, engineReplicaTimeoutShort,
 	engineReplicaTimeoutLong time.Duration, dataServerProtocol types.DataServerProtocol, fileSyncHTTPClientTimeout,
-	snapshotMaxCount int, snapshotMaxSize int64, frontendQueues int) *Controller {
+	snapshotMaxCount int, snapshotMaxSize int64, nrConnections int) *Controller {
 	c := &Controller{
 		factory:       factory,
 		VolumeName:    name,
@@ -97,7 +97,7 @@ func NewController(name string, factory types.BackendFactory, frontend types.Fro
 		DataServerProtocol:        dataServerProtocol,
 
 		fileSyncHTTPClientTimeout: fileSyncHTTPClientTimeout,
-		frontendQueues:            frontendQueues,
+		nrConnections:             nrConnections,
 	}
 	c.reset()
 	c.metricsStart()
@@ -177,7 +177,7 @@ func (c *Controller) addReplica(address string, snapshotRequired bool, mode type
 		return err
 	}
 
-	newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.sharedTimeouts)
+	newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.sharedTimeouts, c.nrConnections)
 	if err != nil {
 		return err
 	}
@@ -903,7 +903,7 @@ func (c *Controller) Start(volumeSize, volumeCurrentSize int64, addresses ...str
 	errorCodes := map[string]codes.Code{}
 	first := true
 	for _, address := range addresses {
-		newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.sharedTimeouts)
+		newBackend, err := c.factory.Create(c.VolumeName, address, c.DataServerProtocol, c.sharedTimeouts, c.nrConnections)
 		if err != nil {
 			if strings.Contains(err.Error(), "rpc error: code = Unavailable") {
 				errorCodes[address] = codes.Unavailable
