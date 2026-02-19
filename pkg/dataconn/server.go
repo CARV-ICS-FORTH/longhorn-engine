@@ -28,12 +28,14 @@ func NewServer(conn net.Conn, data types.DataProcessor) *Server {
 
 	for i := 0; i < queueLength; i++ {
 		ServerMessages[i] = &Message{
-			Complete:     make(chan struct{}),
-			MagicVersion: MagicVersion,
-			Seq:          uint32(i),
-			Type:         0,
-			Offset:       0,
-			Size:         0,
+			Complete: make(chan struct{}),
+			WireHeader: WireHeader{
+				MagicVersion: MagicVersion,
+				Seq:          uint32(i),
+				Type:         0,
+				Offset:       0,
+				Size:         0,
+			},
 			Data:         make([]byte, Blocks*1024),
 			transportErr: nil,
 		}
@@ -99,26 +101,27 @@ func (s *Server) Stop() {
 
 func (s *Server) handleRead(msg *Message) {
 	msg.Data = msg.Data[:msg.Size]
-	c, err := s.data.ReadAt(msg.Data, msg.Offset)
+	c, err := s.data.ReadAt(msg.Data, int64(msg.WireHeader.Offset))
 	s.pushResponse(c, msg, err)
 }
 
 func (s *Server) handleWrite(msg *Message) {
-	c, err := s.data.WriteAt(msg.Data, msg.Offset)
+	c, err := s.data.WriteAt(msg.Data, int64(msg.WireHeader.Offset))
 	s.pushResponse(c, msg, err)
 }
 
 func (s *Server) handleUnmap(msg *Message) {
-	c, err := s.data.UnmapAt(msg.Size, msg.Offset)
+	c, err := s.data.UnmapAt(msg.Size, int64(msg.WireHeader.Offset))
 	s.pushResponse(c, msg, err)
 }
 
 func (s *Server) handlePing(msg *Message) {
-	err := s.data.PingResponse()
-	s.pushResponse(0, msg, err)
+	//err := s.data.PingResponse()
+	s.pushResponse(0, msg, nil)
 }
 
 func (s *Server) pushResponse(count int, msg *Message, err error) {
+	//msg.MagicVersion = MagicVersion
 
 	if msg.Type == TypeWrite || msg.Type == TypeUnmap {
 		msg.Size = uint32(count)
@@ -128,26 +131,45 @@ func (s *Server) pushResponse(count int, msg *Message, err error) {
 
 	if err == io.EOF {
 		msg.Type = TypeEOF
-		//msg.Data = msg.Data[:count]
+		msg.Data = msg.Data[:count]
 		msg.Size = uint32(len(msg.Data))
 	} else if err != nil {
 		msg.Type = TypeError
-		//msg.Data = []byte(err.Error())
+		msg.Data = []byte(err.Error())
 		msg.Size = uint32(len(msg.Data))
 	}
 	s.responses <- msg
 }
 
 func (s *Server) write() {
+	batch := make([]*Message, 0, 64)
 	for {
 		select {
 		case msg := <-s.responses:
-			if err := s.wire.SWrite(msg); err != nil {
+			batch = append(batch, msg)
+
+			// Smart Batching
+			for i := 0; i < 63; i++ {
+				select {
+				case nextMsg := <-s.responses:
+					batch = append(batch, nextMsg)
+				default:
+					goto FLUSH
+				}
+			}
+		FLUSH:
+			if err := s.wire.WriteBatch(batch); err != nil {
 				logrus.WithError(err).Error("Failed to write")
 			}
+			//for _, m := range batch {
+			//	s.responses <- m
+			//}
+			batch = batch[:0]
 		case <-s.done:
 			msg := &Message{
-				Type: TypeClose,
+				WireHeader: WireHeader{
+					Type: TypeClose,
+				},
 			}
 			//Best effort to notify client to close connection
 			if err := s.wire.SWrite(msg); err != nil {

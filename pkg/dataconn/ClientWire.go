@@ -2,7 +2,6 @@ package dataconn
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -10,113 +9,88 @@ import (
 )
 
 type CWire struct {
-	conn        net.Conn
-	writer      *bufio.Writer
-	reader      io.Reader
-	writeHeader []byte
-	readHeader  []byte
+	conn   net.Conn
+	reader io.Reader
 }
 
 func NewCWire(conn net.Conn) *CWire {
 	return &CWire{
-		conn:        conn,
-		writer:      bufio.NewWriterSize(conn, writeBufferSize),
-		reader:      bufio.NewReaderSize(conn, readBufferSize),
-		writeHeader: make([]byte, getRequestHeaderSize()),
-		readHeader:  make([]byte, getRequestHeaderSize()),
+		conn:   conn,
+		reader: bufio.NewReaderSize(conn, readBufferSize),
 	}
 }
 
-func (w *CWire) CWrite(msg *Message, c *Client) error {
-	offset := 0
+func (w *CWire) WriteBatch(messages []*Message) error {
+	buffers := make(net.Buffers, 0, len(messages)*2)
+	for _, msg := range messages {
+		// Update WireHeader fields that depend on Data
+		// msg.Size is redundant with DataLen? The original code had msg.Size as "requested size" for Read,
+		// and explicit data length write for Write/Response.
+		// WireHeader has Size and DataLen.
+		// Size in WireHeader corresponds to the 'Size' field in original Message (uint32).
+		// DataLen is the length of attached data.
 
-	binary.LittleEndian.PutUint16(w.writeHeader[offset:], msg.MagicVersion)
-	offset += int(unsafe.Sizeof(msg.MagicVersion))
+		if msg.Type == TypeWrite || (msg.Type == TypeResponse && msg.Data != nil) {
+			msg.DataLen = uint32(len(msg.Data))
 
-	binary.LittleEndian.PutUint32(w.writeHeader[offset:], msg.Seq)
-	offset += int(unsafe.Sizeof(msg.Seq))
-
-	binary.LittleEndian.PutUint32(w.writeHeader[offset:], msg.Type)
-	offset += int(unsafe.Sizeof(msg.Type))
-
-	binary.LittleEndian.PutUint64(w.writeHeader[offset:], uint64(msg.Offset))
-	offset += int(unsafe.Sizeof(msg.Offset))
-
-	binary.LittleEndian.PutUint32(w.writeHeader[offset:], msg.Size)
-	offset += int(unsafe.Sizeof(msg.Size))
-
-	if msg.Type == TypeWrite {
-		binary.LittleEndian.PutUint32(w.writeHeader[offset:], uint32(len(c.writeBuffs[msg.Seq])))
-		if _, err := w.writer.Write(w.writeHeader); err != nil {
-			return err
+			// Unsafe cast WireHeader to []byte
+			headerBytes := unsafe.Slice((*byte)(unsafe.Pointer(&msg.WireHeader)), HeaderSize)
+			buffers = append(buffers, headerBytes)
+			buffers = append(buffers, msg.Data)
+		} else {
+			msg.DataLen = 0
+			headerBytes := unsafe.Slice((*byte)(unsafe.Pointer(&msg.WireHeader)), HeaderSize)
+			buffers = append(buffers, headerBytes)
 		}
-
-		if _, err := w.writer.Write(c.writeBuffs[msg.Seq]); err != nil {
-			return err
-		}
-	} else {
-		binary.LittleEndian.PutUint32(w.writeHeader[offset:], uint32(0))
-		if _, err := w.writer.Write(w.writeHeader); err != nil {
-			return err
-		}
-
 	}
 
-	//fmt.Println("Write Request : Seq : ", msg.Seq, " Type : ", msg.Type, " Offset : ", msg.Offset, " Size : ", msg.Size)
-	return w.writer.Flush()
+	_, err := buffers.WriteTo(w.conn)
+	return err
+}
+
+func (w *CWire) CWrite(msg *Message) error {
+	return w.WriteBatch([]*Message{msg})
+}
+
+func (w *CWire) Flush() error {
+	return nil
 }
 
 func (w *CWire) CRead(c *Client) (*Message, error) {
+	// Read directly into a temporary WireHeader or the target message's header if we know the Seq beforehand.
+	// But we don't know Seq until we read the header.
+	// So we read into w.readHeader (which is []byte) and cast it to WireHeader?
+	// Or even better: read directly into a stack-allocated WireHeader struct.
 
-	offset := 0
-	if _, err := io.ReadFull(w.reader, w.readHeader); err != nil {
+	var header WireHeader
+	headerBytes := unsafe.Slice((*byte)(unsafe.Pointer(&header)), HeaderSize)
+
+	if _, err := io.ReadFull(w.reader, headerBytes); err != nil {
 		return nil, err
 	}
 
-	Mg := binary.LittleEndian.Uint16(w.readHeader[offset:])
-	if Mg != MagicVersion {
-		return nil, fmt.Errorf("wrong API version received: 0x%x", Mg)
+	if header.MagicVersion != MagicVersion {
+		return nil, fmt.Errorf("wrong API version received: 0x%x", header.MagicVersion)
 	}
-	offset += int(unsafe.Sizeof(Mg))
 
-	Seq := binary.LittleEndian.Uint32(w.readHeader[offset:])
-	offset += int(unsafe.Sizeof(Seq))
+	msg := c.messages[header.Seq]
+	msg.WireHeader = header // Copy header data to message
 
-	msg := c.messages[Seq]
-
-	msg.Type = binary.LittleEndian.Uint32(w.readHeader[offset:])
-	offset += int(unsafe.Sizeof(msg.Type))
-
-	msg.Offset = int64(binary.LittleEndian.Uint64(w.readHeader[offset:]))
-	offset += int(unsafe.Sizeof(msg.Offset))
-
-	msg.Size = binary.LittleEndian.Uint32(w.readHeader[offset:])
-	offset += int(unsafe.Sizeof(msg.Size))
-
-	length := binary.LittleEndian.Uint32(w.readHeader[offset:])
-	if length > 0 {
-		msg.Data = msg.Data[:length]
+	if header.DataLen > 0 {
+		if int(header.DataLen) > cap(msg.Data) {
+			msg.Data = make([]byte, header.DataLen)
+		}
+		msg.Data = msg.Data[:header.DataLen]
 		if _, err := io.ReadFull(w.reader, msg.Data); err != nil {
 			return nil, err
 		}
+	} else {
+		msg.Data = msg.Data[:0]
 	}
-
-	//fmt.Println("Read Reply : Seq : ", msg.Seq, " Type : ", msg.Type, " Offset : ", msg.Offset, " Size : ", msg.Size)
 
 	return msg, nil
 }
 
 func (w *CWire) CClose() error {
 	return w.conn.Close()
-}
-
-func CgetRequestHeaderSize() int {
-	var msg Message
-
-	return int(unsafe.Sizeof(msg.MagicVersion)) +
-		int(unsafe.Sizeof(msg.Seq)) +
-		int(unsafe.Sizeof(msg.Type)) +
-		int(unsafe.Sizeof(msg.Offset)) +
-		int(unsafe.Sizeof(msg.Size)) +
-		4 // length of uint32 (data type of the msg.data length)
 }
