@@ -26,10 +26,12 @@ func (w *SWire) WriteBatch(messages []*Message) error {
 		if msg.Type == TypeRead {
 			msg.DataLen = uint32(len(msg.Data))
 
+			msg.Type = TypeResponse
 			headerBytes := unsafe.Slice((*byte)(unsafe.Pointer(&msg.WireHeader)), HeaderSize)
 			buffers = append(buffers, headerBytes)
 			buffers = append(buffers, msg.Data)
 		} else {
+			msg.Type = TypeResponse
 			msg.DataLen = 0
 			headerBytes := unsafe.Slice((*byte)(unsafe.Pointer(&msg.WireHeader)), HeaderSize)
 			buffers = append(buffers, headerBytes)

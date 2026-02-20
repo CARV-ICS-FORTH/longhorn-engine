@@ -197,7 +197,7 @@ func (c *Client) write() {
 						}
 					}
 				SEND:
-					if err := w.WriteBatch(batch); err != nil {
+					if err := w.WriteBatch(batch, c); err != nil {
 						c.responses <- &Message{
 							transportErr: err,
 						}

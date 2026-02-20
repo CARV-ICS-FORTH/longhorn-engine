@@ -20,7 +20,7 @@ func NewCWire(conn net.Conn) *CWire {
 	}
 }
 
-func (w *CWire) WriteBatch(messages []*Message) error {
+func (w *CWire) WriteBatch(messages []*Message, c *Client) error {
 	buffers := make(net.Buffers, 0, len(messages)*2)
 	for _, msg := range messages {
 		// Update WireHeader fields that depend on Data
@@ -30,13 +30,13 @@ func (w *CWire) WriteBatch(messages []*Message) error {
 		// Size in WireHeader corresponds to the 'Size' field in original Message (uint32).
 		// DataLen is the length of attached data.
 
-		if msg.Type == TypeWrite || (msg.Type == TypeResponse && msg.Data != nil) {
-			msg.DataLen = uint32(len(msg.Data))
+		if msg.Type == TypeWrite {
+			msg.DataLen = uint32(len(c.writeBuffs[msg.Seq]))
 
 			// Unsafe cast WireHeader to []byte
 			headerBytes := unsafe.Slice((*byte)(unsafe.Pointer(&msg.WireHeader)), HeaderSize)
 			buffers = append(buffers, headerBytes)
-			buffers = append(buffers, msg.Data)
+			buffers = append(buffers, c.writeBuffs[msg.Seq])
 		} else {
 			msg.DataLen = 0
 			headerBytes := unsafe.Slice((*byte)(unsafe.Pointer(&msg.WireHeader)), HeaderSize)
@@ -48,8 +48,8 @@ func (w *CWire) WriteBatch(messages []*Message) error {
 	return err
 }
 
-func (w *CWire) CWrite(msg *Message) error {
-	return w.WriteBatch([]*Message{msg})
+func (w *CWire) CWrite(msg *Message, c *Client) error {
+	return w.WriteBatch([]*Message{msg}, c)
 }
 
 func (w *CWire) Flush() error {
