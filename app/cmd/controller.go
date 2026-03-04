@@ -110,6 +110,10 @@ func ControllerCmd() cli.Command {
 				Value:    6,
 				Usage:    "Number of concurrent controller-replica TCP connections",
 			},
+			cli.BoolFlag{
+				Name:  "uring",
+				Usage: "Use io_uring instead of standard net/TCP for data connections",
+			},
 		},
 		Action: func(c *cli.Context) {
 			if err := startController(c); err != nil {
@@ -144,6 +148,10 @@ func startController(c *cli.Context) error {
 	frontendQueues := c.Int("frontend-queues")
 	frontendQd := c.Int("frontend-qd")
 	nrConnections := c.Int("cr-connections")
+
+	if c.Bool("uring") {
+		dataServerProtocol = string(types.DataServerProtocolUring)
+	}
 
 	size := c.String("size")
 	if size == "" {

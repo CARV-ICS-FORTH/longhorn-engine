@@ -13,6 +13,8 @@ github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2/go.mod h1:wP83
 github.com/BurntSushi/toml v1.3.2/go.mod h1:CxXYINrC8qIiEnFrOxCa7Jy5BFHlXnUU2pbicEuybxQ=
 github.com/Kampadais/dbs v0.0.0-20250925134741-609b685c95e8 h1:363bKMW29c1OPcFNT9XPG5xLwB02AaLwWjwN8QB+Pc4=
 github.com/Kampadais/dbs v0.0.0-20250925134741-609b685c95e8/go.mod h1:hxfzoi5p6n8GIMIbPe8YmQwgDeoJYKH49ik8mfboQZA=
+github.com/Kampadais/giouring v0.0.0-20250403123126-e41c674f4f95 h1:m98VxPlSoAMPz45DUA/uogX4GezsnyTZiQew3OYfQTs=
+github.com/Kampadais/giouring v0.0.0-20250403123126-e41c674f4f95/go.mod h1:n7kxYnt/uLWjUrUf1MTpRD8yHn5zf1CTAG6zP7O28X0=
 github.com/aws/aws-sdk-go v1.55.5 h1:KKUZBfBoyqy5d3swXyiC7Q76ic40rYcbqH7qjh59kzU=
 github.com/aws/aws-sdk-go v1.55.5/go.mod h1:eRwEWoyTWFMVYVQzKMNHWP5/RV4xIUGMQfXQHfHkpNU=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
@@ -117,6 +119,8 @@ github.com/opencontainers/runc v1.1.14 h1:rgSuzbmgz5DUJjeSnw337TxDbRuqjs6iqQck/2
 github.com/opencontainers/runc v1.1.14/go.mod h1:E4C2z+7BxR7GHXp0hAY53mek+x49X1LjPNeMTfRGvOA=
 github.com/opencontainers/runtime-spec v1.0.3-0.20220909204839-494a5a6aca78 h1:R5M2qXZiK/mWPMT4VldCOiSL9HIAMuxQZWdG0CSM5+4=
 github.com/opencontainers/runtime-spec v1.0.3-0.20220909204839-494a5a6aca78/go.mod h1:jwyrGlmzljRJv/Fgzds9SsS/C5hL+LL3ko9hs6T5lQ0=
+github.com/pawelgaczynski/giouring v0.0.0-20230826085535-69588b89acb9 h1:Cu/CW2nKeqXinVjf5Bq1FeBD4jWG/msC5UazjjgAvsU=
+github.com/pawelgaczynski/giouring v0.0.0-20230826085535-69588b89acb9/go.mod h1:HwOQqYv/WE3RMp4iTQsS6ou8WP3wKO9UXD0oDqB3NPU=
 github.com/pierrec/lz4/v4 v4.1.21 h1:yOVMLb6qSIDP67pl/5F7RepeKYu/VmTyEXvuMI5d9mQ=
 github.com/pierrec/lz4/v4 v4.1.21/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c h1:+mdjkGKdHQG3305AYmdv1U2eRNDiU2ErMBj1gwrq8eQ=

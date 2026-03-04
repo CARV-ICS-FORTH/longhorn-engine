@@ -43,6 +43,9 @@ github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service
 # github.com/Kampadais/dbs v0.0.0-20250925134741-609b685c95e8
 ## explicit; go 1.21
 github.com/Kampadais/dbs
+# github.com/Kampadais/giouring v0.0.0-20250403123126-e41c674f4f95
+## explicit; go 1.20
+github.com/Kampadais/giouring
 # github.com/aws/aws-sdk-go v1.55.5
 ## explicit; go 1.19
 github.com/aws/aws-sdk-go/aws
@@ -251,6 +254,9 @@ github.com/opencontainers/runc/libcontainer/userns
 # github.com/opencontainers/runtime-spec v1.0.3-0.20220909204839-494a5a6aca78
 ## explicit
 github.com/opencontainers/runtime-spec/specs-go
+# github.com/pawelgaczynski/giouring v0.0.0-20230826085535-69588b89acb9
+## explicit; go 1.20
+github.com/pawelgaczynski/giouring
 # github.com/pierrec/lz4/v4 v4.1.21
 ## explicit; go 1.14
 github.com/pierrec/lz4/v4

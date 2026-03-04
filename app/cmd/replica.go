@@ -91,6 +91,10 @@ func ReplicaCmd() cli.Command {
 				Name:  "enable-dbs",
 				Usage: "Start replica DBS backend",
 			},
+			cli.BoolFlag{
+				Name:  "uring",
+				Usage: "Use io_uring instead of standard net/TCP for data connections",
+			},
 		},
 		Action: func(c *cli.Context) {
 
@@ -157,6 +161,10 @@ func startReplica(c *cli.Context) (err error) {
 	volumeName := c.GlobalString("volume-name")
 	replicaInstanceName := c.String("replica-instance-name")
 	dataServerProtocol := c.String("data-server-protocol")
+
+	if c.Bool("uring") {
+		dataServerProtocol = string(types.DataServerProtocolUring)
+	}
 
 	controlAddress, dataAddress, syncAddress, syncPort, err :=
 		util.GetAddresses(volumeName, address, types.DataServerProtocol(dataServerProtocol))
@@ -281,6 +289,10 @@ func startReplicaDBS(c *cli.Context) error {
 	address := c.String("listen")
 	replicaInstanceName := c.String("replica-instance-name")
 	dataServerProtocol := c.String("data-server-protocol")
+
+	if c.Bool("uring") {
+		dataServerProtocol = string(types.DataServerProtocolUring)
+	}
 
 	controlAddress, dataAddress, syncAddress, syncPort, err :=
 		util.GetAddresses(volumeName, address, types.DataServerProtocol(dataServerProtocol))

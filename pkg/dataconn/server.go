@@ -9,13 +9,12 @@ import (
 	"github.com/longhorn/longhorn-engine/pkg/types"
 )
 
-var ServerMessages [queueLength]*Message
-
 type Server struct {
-	wire      *SWire
-	responses chan *Message
-	done      chan struct{}
-	data      types.DataProcessor
+	wire           *SWire
+	responses      chan *Message
+	done           chan struct{}
+	data           types.DataProcessor
+	serverMessages [queueLength]*Message
 }
 
 func NewServer(conn net.Conn, data types.DataProcessor) *Server {
@@ -27,8 +26,8 @@ func NewServer(conn net.Conn, data types.DataProcessor) *Server {
 	}
 
 	for i := 0; i < queueLength; i++ {
-		ServerMessages[i] = &Message{
-			Complete:     make(chan struct{}),
+		server.serverMessages[i] = &Message{
+			Complete:     make(chan struct{}, 1),
 			MagicVersion: MagicVersion,
 			Seq:          uint32(i),
 			Type:         0,

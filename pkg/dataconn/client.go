@@ -48,7 +48,7 @@ func NewClient(conns []net.Conn, sharedTimeouts types.SharedTimeouts) *Client {
 	}
 	for i := 0; i < queueLength; i++ {
 		c.messages[i] = &Message{
-			Complete:     make(chan struct{}),
+			Complete:     make(chan struct{}, 1),
 			MagicVersion: MagicVersion,
 			Seq:          uint32(i),
 			Type:         0,

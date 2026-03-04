@@ -274,6 +274,8 @@ func ResolveBackingFilepath(fileOrDirpath string) (string, error) {
 
 func GetAddresses(volumeName, address string, dataServerProtocol types.DataServerProtocol) (string, string, string, int, error) {
 	switch dataServerProtocol {
+	case types.DataServerProtocolUring:
+		return ParseAddresses(address)
 	case types.DataServerProtocolTCP:
 		return ParseAddresses(address)
 	case types.DataServerProtocolUNIX:

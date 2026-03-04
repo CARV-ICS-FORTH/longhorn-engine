@@ -29,6 +29,8 @@ func (s *DataServer) ListenAndServe() error {
 	switch s.protocol {
 	case types.DataServerProtocolTCP:
 		return s.listenAndServeTCP()
+	case types.DataServerProtocolUring:
+		return s.listenAndServeUring()
 	case types.DataServerProtocolUNIX:
 		return s.listenAndServeUNIX()
 	default:
@@ -60,6 +62,35 @@ func (s *DataServer) listenAndServeTCP() error {
 			server := dataconn.NewServer(conn, s.s)
 			if err = server.Handle(); err != nil {
 				logrus.WithError(err).Warn("failed to handle data server")
+			}
+		}(conn)
+	}
+}
+
+func (s *DataServer) listenAndServeUring() error {
+	addr, err := net.ResolveTCPAddr("tcp", s.address)
+	if err != nil {
+		return err
+	}
+
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	for {
+		conn, err := l.AcceptTCP()
+		if err != nil {
+			logrus.WithError(err).Error("failed to accept uring tcp connection")
+			continue
+		}
+
+		logrus.Infof("New uring connection from: %v", conn.RemoteAddr())
+
+		go func(conn net.Conn) {
+			server := dataconn.NewUringServer(conn, s.s)
+			if err = server.Handle(); err != nil {
+				logrus.WithError(err).Warn("failed to handle uring data server")
 			}
 		}(conn)
 	}

@@ -476,22 +476,32 @@ func (rf *Factory) Create(volumeName, address string, dataServerProtocol types.D
 		conns = append(conns, conn)
 	}
 
-	dataConnClient := dataconn.NewClient(conns, sharedTimeouts)
+	var dataConnClient types.ReaderWriterUnmapperAt
+	if dataServerProtocol == types.DataServerProtocolUring {
+		dataConnClient = dataconn.NewUringClient(conns, sharedTimeouts)
+	} else {
+		dataConnClient = dataconn.NewClient(conns, sharedTimeouts)
+	}
+
 	r.ReaderWriterUnmapperAt = dataConnClient
 
 	if err := r.open(); err != nil {
 		return nil, err
 	}
 
-	go r.monitorPing(dataConnClient)
+	// if c, ok := dataConnClient.(*dataconn.Client); ok {
+	// 	//	go r.monitorPing(c)
+	// } else if uc, ok := dataConnClient.(*dataconn.UringClient); ok {
+	// 	//go r.monitorUringPing(uc)
+	// }
 
 	return r, nil
 }
 
 func connect(dataServerProtocol types.DataServerProtocol, address string) (net.Conn, error) {
 	switch dataServerProtocol {
-	case types.DataServerProtocolTCP:
-		return net.Dial(string(dataServerProtocol), address)
+	case types.DataServerProtocolTCP, types.DataServerProtocolUring:
+		return net.Dial("tcp", address)
 	case types.DataServerProtocolUNIX:
 		unixAddr, err := net.ResolveUnixAddr("unix", address)
 		if err != nil {

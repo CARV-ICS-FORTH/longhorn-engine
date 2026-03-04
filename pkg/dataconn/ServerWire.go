@@ -2,7 +2,6 @@ package dataconn
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -13,50 +12,46 @@ type SWire struct {
 	conn        net.Conn
 	writer      *bufio.Writer
 	reader      io.Reader
-	writeHeader []byte
-	readHeader  []byte
+	writeHeader WireHeader
+	readHeader  WireHeader
 }
 
 func NewSWire(conn net.Conn) *SWire {
 	return &SWire{
-		conn:        conn,
-		writer:      bufio.NewWriterSize(conn, writeBufferSize),
-		reader:      bufio.NewReaderSize(conn, readBufferSize),
-		writeHeader: make([]byte, getRequestHeaderSize()),
-		readHeader:  make([]byte, getRequestHeaderSize()),
+		conn:   conn,
+		writer: bufio.NewWriterSize(conn, writeBufferSize),
+		reader: bufio.NewReaderSize(conn, readBufferSize),
+		// writeHeader: WireHeader{}, // Native zero-values
+		// readHeader:  WireHeader{}, // Native zero-values
 	}
 }
 
 func (w *SWire) SWrite(msg *Message) error {
-	offset := 0
+	w.writeHeader = WireHeader{
+		Offset:       msg.Offset,
+		Seq:          msg.Seq,
+		Type:         msg.Type,
+		Size:         msg.Size,
+		DataLength:   0,
+		MagicVersion: msg.MagicVersion,
+	}
 
-	binary.LittleEndian.PutUint16(w.writeHeader[offset:], msg.MagicVersion)
-	offset += int(unsafe.Sizeof(msg.MagicVersion))
+	if msg.Type == TypeRead {
+		w.writeHeader.DataLength = uint32(len(msg.Data))
+	}
 
-	binary.LittleEndian.PutUint32(w.writeHeader[offset:], msg.Seq)
-	offset += int(unsafe.Sizeof(msg.Seq))
-
-	binary.LittleEndian.PutUint32(w.writeHeader[offset:], msg.Type)
-	offset += int(unsafe.Sizeof(msg.Type))
-
-	binary.LittleEndian.PutUint64(w.writeHeader[offset:], uint64(msg.Offset))
-	offset += int(unsafe.Sizeof(msg.Offset))
-
-	binary.LittleEndian.PutUint32(w.writeHeader[offset:], msg.Size)
-	offset += int(unsafe.Sizeof(msg.Size))
+	headerSlice := unsafe.Slice((*byte)(unsafe.Pointer(&w.writeHeader)), unsafe.Sizeof(WireHeader{}))
 
 	if msg.Type == TypeRead {
 		//fmt.Println("Writing length ", uint32(len(msg.Data)))
-		binary.LittleEndian.PutUint32(w.writeHeader[offset:], uint32(len(msg.Data)))
-		if _, err := w.writer.Write(w.writeHeader); err != nil {
+		if _, err := w.writer.Write(headerSlice); err != nil {
 			return err
 		}
 		if _, err := w.writer.Write(msg.Data); err != nil {
 			return err
 		}
 	} else {
-		binary.LittleEndian.PutUint32(w.writeHeader[offset:], uint32(0))
-		if _, err := w.writer.Write(w.writeHeader); err != nil {
+		if _, err := w.writer.Write(headerSlice); err != nil {
 			return err
 		}
 
@@ -67,33 +62,22 @@ func (w *SWire) SWrite(msg *Message) error {
 }
 
 func (w *SWire) SRead(s *Server) (*Message, error) {
+	headerSlice := unsafe.Slice((*byte)(unsafe.Pointer(&w.readHeader)), unsafe.Sizeof(WireHeader{}))
 
-	offset := 0
-
-	if _, err := io.ReadFull(w.reader, w.readHeader); err != nil {
+	if _, err := io.ReadFull(w.reader, headerSlice); err != nil {
 		return nil, err
 	}
 
-	Mg := binary.LittleEndian.Uint16(w.readHeader[offset:])
-	if Mg != MagicVersion {
-		return nil, fmt.Errorf("wrong API version received: 0x%x", Mg)
+	if w.readHeader.MagicVersion != MagicVersion {
+		return nil, fmt.Errorf("wrong API version received: 0x%x", w.readHeader.MagicVersion)
 	}
-	offset += int(unsafe.Sizeof(Mg))
 
-	seq := binary.LittleEndian.Uint32(w.readHeader[offset:])
-	offset += int(unsafe.Sizeof(seq))
+	msg := s.serverMessages[w.readHeader.Seq]
+	msg.Type = w.readHeader.Type
+	msg.Offset = w.readHeader.Offset
+	msg.Size = w.readHeader.Size
 
-	msg := ServerMessages[seq]
-	msg.Type = binary.LittleEndian.Uint32(w.readHeader[offset:])
-	offset += int(unsafe.Sizeof(msg.Type))
-
-	msg.Offset = int64(binary.LittleEndian.Uint64(w.readHeader[offset:]))
-	offset += int(unsafe.Sizeof(msg.Offset))
-
-	msg.Size = binary.LittleEndian.Uint32(w.readHeader[offset:])
-	offset += int(unsafe.Sizeof(msg.Size))
-
-	length := binary.LittleEndian.Uint32(w.readHeader[offset:])
+	length := w.readHeader.DataLength
 	if length > 0 {
 		msg.Data = msg.Data[:length]
 		if _, err := io.ReadFull(w.reader, msg.Data); err != nil {
@@ -109,13 +93,7 @@ func (w *SWire) SClose() error {
 	return w.conn.Close()
 }
 
-func SgetRequestHeaderSize() int {
-	var msg Message
-
-	return int(unsafe.Sizeof(msg.MagicVersion)) +
-		int(unsafe.Sizeof(msg.Seq)) +
-		int(unsafe.Sizeof(msg.Type)) +
-		int(unsafe.Sizeof(msg.Offset)) +
-		int(unsafe.Sizeof(msg.Size)) +
-		4 // length of uint32 (data type of the msg.data length)
-}
+// Legacy sizing mechanism replaced!
+// func SgetRequestHeaderSize() int {
+// 	return int(unsafe.Sizeof(WireHeader{}))
+// }
