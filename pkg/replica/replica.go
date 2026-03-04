@@ -1298,9 +1298,9 @@ func (r *Replica) Expand(size int64) (err error) {
 }
 
 func (r *Replica) WriteAt(buf []byte, offset int64) (int, error) {
-	// if r.readOnly {
-	// 	return 0, fmt.Errorf("cannot write on read-only replica")
-	// }
+	if r.readOnly {
+		return 0, fmt.Errorf("cannot write on read-only replica")
+	}
 
 	// // Increase the revision counter optimistically in a separate goroutine since most of the time write operations will succeed.
 	// // Once the write operation fails, the revision counter will be wrongly increased by 1. It means that the revision counter is not accurate.
@@ -1311,28 +1311,26 @@ func (r *Replica) WriteAt(buf []byte, offset int64) (int, error) {
 	// 	}
 	// }()
 
-	// r.RLock()
-	// r.info.Dirty = true
-	// c, err := r.volume.WriteAt(buf, offset)
-	// r.RUnlock()
-	// if err != nil {
-	// 	return c, err
-	// }
+	r.RLock()
+	r.info.Dirty = true
+	c, err := r.volume.WriteAt(buf, offset)
+	r.RUnlock()
+	if err != nil {
+		return c, err
+	}
 
 	// if !r.revisionCounterDisabled {
 	// 	err = <-r.revisionCounterAckChan
 	// }
 
-	// return c, err
-	return len(buf), nil
+	return c, err
 }
 
 func (r *Replica) ReadAt(buf []byte, offset int64) (int, error) {
-	// r.RLock()
-	// c, err := r.volume.ReadAt(buf, offset)
-	// r.RUnlock()
-	// return c, err
-	return len(buf), nil
+	r.RLock()
+	c, err := r.volume.ReadAt(buf, offset)
+	r.RUnlock()
+	return c, err
 }
 
 func (r *Replica) UnmapAt(length uint32, offset int64) (n int, err error) {

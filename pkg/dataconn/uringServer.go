@@ -370,15 +370,17 @@ func (s *UringServer) Stop() {
 }
 
 func (s *UringServer) handleRead(msg *Message) {
-	// msg.Data is essentially empty for reads, the backend engine provisions the fill
-	msg.Data = make([]byte, msg.Size)
-	//c, err := s.data.ReadAt(msg.Data, msg.Offset)
-	s.pushResponse(len(msg.Data), msg, nil)
+	if cap(msg.Data) < int(msg.Size) {
+		msg.Data = make([]byte, msg.Size)
+	}
+	msg.Data = msg.Data[:msg.Size]
+	c, err := s.data.ReadAt(msg.Data, msg.Offset)
+	s.pushResponse(c, msg, err)
 }
 
 func (s *UringServer) handleWrite(msg *Message) {
-	//	c, err := s.data.WriteAt(msg.Data, msg.Offset)
-	s.pushResponse(len(msg.Data), msg, nil)
+	c, err := s.data.WriteAt(msg.Data, msg.Offset)
+	s.pushResponse(c, msg, err)
 }
 
 func (s *UringServer) handleUnmap(msg *Message) {
