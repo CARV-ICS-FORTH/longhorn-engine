@@ -1,13 +1,5 @@
 package ublk
 
-/*
-#cgo CFLAGS: -I.
-#cgo LDFLAGS: -luring
-#include "ublkhelper.h"
-#include <stdlib.h>
-
-*/
-import "C"
 import (
 	"fmt"
 	"io"
@@ -15,12 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"unsafe"
 
 	"github.com/longhorn/longhorn-engine/pkg/dataconn"
 	"github.com/longhorn/longhorn-engine/pkg/types"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	ublk "github.com/Kampadais/GoUblksrv"
 )
 
 const (
@@ -48,25 +41,23 @@ var Done = make(chan struct{})
 var msgChan = make(chan *dataconn.FrMessage, 4096)
 
 type Ublk struct {
-	Volume     string
-	Size       int64
-	UblkID     int
-	Queues     int
-	QueueDepth int
-	BlockSize  int
-	DaemonPId  int
-
-	isUp         bool
+	dev          *ublk.UblkDevice
 	socketPath   string
 	socketServer *dataconn.Server
 }
 
 func New(options types.FrontendOptions) *Ublk {
-	return &Ublk{
+	params := ublk.UblkParams{
 		Queues:     options.UblkSrvOptions.Queues,
 		QueueDepth: options.UblkSrvOptions.QueueDepth,
-		BlockSize:  4096,
-		isUp:       false,
+	}
+	ublkDev, err := ublk.NewUblkDevice("", params)
+	if err != nil {
+		logrus.Errorf("Failed to create ublk device: %v", err)
+		return nil
+	}
+	return &Ublk{
+		dev: ublkDev,
 	}
 }
 
@@ -75,105 +66,49 @@ func (u *Ublk) FrontendName() string {
 }
 
 func (u *Ublk) Init(name string, size, sectorSize int64) error {
-	u.Volume = name
-	u.Size = size
+	u.dev.Volume = name
+	u.dev.Size = size
 
 	return nil
 }
 
 func (u *Ublk) Startup(rwu types.ReaderWriterUnmapperAt) error {
 
-	go func() {
-		server := dataconn.NewFrontendServer(NewDataProcessorWrapper(rwu))
-		server.Handle()
-
-	}()
-
-	for i := range chanSize {
-		msg := dataconn.FrMessage{
-			Complete:     make(chan struct{}, 1),
-			MagicVersion: dataconn.MagicVersion,
-			Seq:          uint32(i),
-			Type:         uint32(100),
-			Offset:       int64(0),
-			Size:         uint32(0),
-			RData:        make([]byte, dataconn.Blocks*1024),
-			WData:        nil,
-		}
-		msgChan <- &msg
-	}
-
-	err := os.MkdirAll("/tmp/ublksrvd", 0755)
-	if err != nil {
-		fmt.Println("Error creating directory")
-		return err
-	}
-	nrHwQueues := 0
-	if u.Queues > 0 {
-		nrHwQueues = u.Queues
-	} else {
-		nrHwQueues = C.DEF_NR_HW_QUEUES
-	}
-
-	queueDepth := 0
-	if u.QueueDepth > 0 {
-		queueDepth = u.QueueDepth
-	} else {
-		queueDepth = C.DEF_QD
-	}
-
-	devId := -1
-	runDir := C.UBLKSRV_PID_DIR
-	maxIOBufBytes := C.DEF_BUF_SIZE
-
-	data := C.struct_ublksrv_dev_data{
-		queue_depth:      C.ushort(queueDepth),
-		nr_hw_queues:     C.ushort(nrHwQueues),
-		dev_id:           C.int(devId),
-		run_dir:          C.CString(runDir),
-		max_io_buf_bytes: C.uint(maxIOBufBytes),
-	}
-	u.isUp = true
-	go func() {
-		dev := C.ublksrv_ctrl_init(&data)
-		C.ublksrv_ctrl_add_dev(dev)
-		sectors := uint64(u.Size) >> 9
-		C.init_params(dev, C.__u64(sectors))
-
-		u.UblkID = int(dev.dev_info.dev_id)
-
-		C.ublksrv_start_daemon(dev)
-	}()
+	u.dev.Start(rwu)
 
 	return nil
-
 }
 
 func (u *Ublk) Shutdown() error {
-	go C.cmd_dev_del(C.int(u.UblkID))
-	<-Done
+	u.dev.Delete()
 	return nil
 }
 
 func (u *Ublk) State() types.State {
-	if u.isUp {
+	info, err := u.dev.GetInfo()
+	if err != nil {
+		logrus.Errorf("Failed to get info from device: %v", err)
+	}
+
+	if info.State == ublk.StateLive {
 		return types.StateUp
 	}
 	return types.StateDown
+
 }
 
 func (u *Ublk) Endpoint() string {
-	if u.isUp {
-		return "/dev/ublkb" + strconv.Itoa(u.UblkID)
+	if u.State() == types.StateUp {
+		return "/dev/ublkb" + strconv.Itoa(u.dev.ID)
 	}
 	return ""
 }
 
 func (u *Ublk) GetSocketPath() string {
-	if u.Volume == "" {
+	if u.dev.Volume == "" {
 		panic("Invalid volume name")
 	}
-	return filepath.Join(SocketDirectory, "longhorn-"+u.Volume+".sock")
+	return filepath.Join(SocketDirectory, "longhorn-"+u.dev.Volume+".sock")
 }
 
 func (u *Ublk) startSocketServer(rwu types.ReaderWriterUnmapperAt) error {
@@ -235,56 +170,6 @@ func (u *Ublk) handleServerConnection(c net.Conn, rwu types.ReaderWriterUnmapper
 	} else if err == io.EOF {
 		logrus.Warn("Socket server connection closed")
 	}
-}
-
-//export onRequestAsync
-func onRequestAsync(msg *C.struct_msghdr, req *C.struct_message, opType C.int, q *C.struct_ublksrv_queue, data *C.struct_ublk_io_data) {
-
-	iovecs := (*[2]C.struct_iovec)(unsafe.Pointer(msg.msg_iov))[:msg.msg_iovlen:msg.msg_iovlen]
-
-	dataPtr := iovecs[1].iov_base
-	dataLen := iovecs[1].iov_len
-
-	EngineMsg := <-msgChan
-
-	EngineMsg.Size = uint32(req.size)
-	EngineMsg.Seq = uint32(C.int(req.seq))
-	EngineMsg.Type = uint32(opType)
-	EngineMsg.Offset = int64(req.offset)
-
-	if opType == LONGHORN_CMD_TYPE_WRITE {
-		EngineMsg.WData = unsafe.Slice((*byte)(dataPtr), dataLen)
-	}
-
-	//fmt.Println("onRequestAsync: opType:", opType, "dataPtr:", dataPtr, "dataLen:", dataLen, "q:", q, "data:", buf)
-	go func(msgObj *dataconn.FrMessage, opType C.int, dataPtr unsafe.Pointer, dataLen C.size_t, q *C.struct_ublksrv_queue, data *C.struct_ublk_io_data) {
-		//fmt.Println("Request : Seq : ", msgObj.Seq, " Type : ", msgObj.Type, " Offset : ", msgObj.Offset, " Size : ", msgObj.Size)
-
-		dataconn.Requests <- msgObj
-		<-msgObj.Complete
-		//fmt.Println("Reply at Request : Seq : ", msgObj.Seq, " Type : ", msgObj.Type, " Offset : ", msgObj.Offset, " Size : ", msgObj.Size)
-
-		if opType == LONGHORN_CMD_TYPE_READ {
-			//fmt.Println("Read request completed, copying data: ", msgObj.Data)
-			dst := unsafe.Slice((*byte)(dataPtr), dataLen)
-			copy(dst, msgObj.RData)
-		}
-
-		if opType == LONGHORN_CMD_TYPE_UNMAP {
-			C.ublksrv_complete_io(q, C.uint(data.tag), 0)
-		} else {
-			nrSectors := C.get_nr_sectors(data.iod)
-			C.ublksrv_complete_io(q, C.uint(data.tag), C.int(nrSectors<<9))
-		}
-		msgChan <- msgObj
-	}(EngineMsg, opType, dataPtr, dataLen, q, data)
-
-}
-
-//export notifyShutdown
-func notifyShutdown() {
-	fmt.Println("notify shutdown chan")
-	Done <- struct{}{}
 }
 
 type DataProcessorWrapper struct {

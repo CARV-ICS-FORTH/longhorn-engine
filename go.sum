@@ -11,6 +11,8 @@ github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.4.1/go.mod h1:ap1dmS6vQK
 github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2 h1:XHOnouVk1mxXfQidrMEnLlPk9UMeRtyBTnEFtxkV0kU=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2/go.mod h1:wP83P5OoQ5p6ip3ScPr0BAq0BvuPAvacpEuSzyouqAI=
 github.com/BurntSushi/toml v1.3.2/go.mod h1:CxXYINrC8qIiEnFrOxCa7Jy5BFHlXnUU2pbicEuybxQ=
+github.com/Kampadais/GoUblksrv v0.0.0-20260407132119-5d19390e16f9 h1:4yTNsTHNZaUUV2iRvkSAmoFE/zobx7OqbKhM1ILb/FA=
+github.com/Kampadais/GoUblksrv v0.0.0-20260407132119-5d19390e16f9/go.mod h1:7rqysyLbdTg/eXIMQRIfVkgQx1A1XWOKtohWKWK/hsg=
 github.com/Kampadais/dbs v0.0.0-20250925134741-609b685c95e8 h1:363bKMW29c1OPcFNT9XPG5xLwB02AaLwWjwN8QB+Pc4=
 github.com/Kampadais/dbs v0.0.0-20250925134741-609b685c95e8/go.mod h1:hxfzoi5p6n8GIMIbPe8YmQwgDeoJYKH49ik8mfboQZA=
 github.com/aws/aws-sdk-go v1.55.5 h1:KKUZBfBoyqy5d3swXyiC7Q76ic40rYcbqH7qjh59kzU=

@@ -1,10 +1,9 @@
 module github.com/longhorn/longhorn-engine
 
-go 1.24.0
-
-toolchain go1.25.2
+go 1.25.7
 
 require (
+	github.com/Kampadais/GoUblksrv v0.0.0-20260407132119-5d19390e16f9
 	github.com/Kampadais/dbs v0.0.0-20250925134741-609b685c95e8
 	github.com/docker/go-units v0.5.0
 	github.com/gofrs/flock v0.12.1
