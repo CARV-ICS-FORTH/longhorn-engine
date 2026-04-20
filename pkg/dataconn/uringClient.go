@@ -12,6 +12,7 @@ import (
 
 	"github.com/Kampadais/giouring"
 	"github.com/longhorn/longhorn-engine/pkg/types"
+	"github.com/longhorn/longhorn-engine/pkg/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -46,7 +47,6 @@ type UringClient struct {
 	writeHeaders   [queueLength]WireHeader
 	readDataIovecs [queueLength][1]syscall.Iovec
 	SeqChan        chan uint32
-	conns          []net.Conn
 	uConns         []*uringConnection
 	peerAddr       string
 	sharedTimeouts types.SharedTimeouts
@@ -58,7 +58,6 @@ func NewUringClient(conns []net.Conn, sharedTimeouts types.SharedTimeouts) *Urin
 	}
 
 	c := &UringClient{
-		conns:          conns,
 		peerAddr:       conns[0].RemoteAddr().String(),
 		end:            make(chan struct{}, 4096),
 		responses:      make(chan *Message, 4096),
@@ -105,8 +104,8 @@ func NewUringClient(conns []net.Conn, sharedTimeouts types.SharedTimeouts) *Urin
 		c.SeqChan <- i
 	}
 
-	for _, uc := range c.uConns {
-		go c.readLoop(uc)
+	for i, uc := range c.uConns {
+		go c.readLoop(uc, i)
 	}
 
 	return c
@@ -242,7 +241,11 @@ func (c *UringClient) resumeWrite(uc *uringConnection, res int) {
 
 // Write queue serialization successfully resolved in operation()
 
-func (c *UringClient) readLoop(uc *uringConnection) {
+func (c *UringClient) readLoop(uc *uringConnection, cpuID int) {
+
+	if err := util.PinToCore(cpuID); err != nil {
+		logrus.WithError(err).Warnf("Failed to pin client readLoop to core %d", cpuID)
+	}
 	c.submitReadHeader(uc)
 
 	for {

@@ -67,7 +67,10 @@ func (s *DataServer) listenAndServeTCP() error {
 	}
 }
 
+var numaOffset = 8
+
 func (s *DataServer) listenAndServeUring() error {
+	cpuID := 0
 	addr, err := net.ResolveTCPAddr("tcp", s.address)
 	if err != nil {
 		return err
@@ -87,12 +90,14 @@ func (s *DataServer) listenAndServeUring() error {
 
 		logrus.Infof("New uring connection from: %v", conn.RemoteAddr())
 
-		go func(conn net.Conn) {
+		go func(conn net.Conn, id int) {
 			server := dataconn.NewUringServer(conn, s.s)
-			if err = server.Handle(); err != nil {
+			desiredCore := numaOffset + (id % 8)
+			if err = server.Handle(desiredCore); err != nil {
 				logrus.WithError(err).Warn("failed to handle uring data server")
 			}
-		}(conn)
+		}(conn, cpuID)
+		cpuID++
 	}
 }
 

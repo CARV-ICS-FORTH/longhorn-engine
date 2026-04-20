@@ -11,6 +11,7 @@ import (
 
 	"github.com/Kampadais/giouring"
 	"github.com/longhorn/longhorn-engine/pkg/types"
+	"github.com/longhorn/longhorn-engine/pkg/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -81,7 +82,10 @@ func NewUringServer(conn net.Conn, data types.DataProcessor) *UringServer {
 	return server
 }
 
-func (s *UringServer) Handle() error {
+func (s *UringServer) Handle(cpuID int) error {
+	if err := util.PinToCore(cpuID); err != nil {
+		logrus.WithError(err).Warnf("Failed to pin server to core %d", cpuID)
+	}
 	defer func() {
 		s.done <- struct{}{}
 		if s.file != nil {
